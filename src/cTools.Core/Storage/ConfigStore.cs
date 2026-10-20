@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using cTools.Core.Logging;
 using cTools.Core.Models;
+using cTools.Core.Scanning;
 
 namespace cTools.Core.Storage;
 
@@ -62,6 +63,7 @@ public static class ConfigStore
             settings.ScanExtensions ??= new List<string>();
             settings.ExcludePatterns ??= new List<string>();
             if (settings.Version < 2) MigrateToVersion2(settings);
+            TextEditorCatalog.EnsureConfigured(settings);
             return settings;
         }
         catch (Exception ex)

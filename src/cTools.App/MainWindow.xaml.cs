@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,6 +11,7 @@ using System.Windows.Threading;
 using cTools.App.Services;
 using cTools.App.ViewModels;
 using cTools.Core.Models;
+using cTools.Core.Scanning;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using DragEventArgs = System.Windows.DragEventArgs;
 
@@ -91,6 +94,7 @@ public partial class MainWindow : Window
     public void ShowPalette()
     {
         _previousForeground = GetForegroundWindow();
+        RefreshSuggestions();
         _ignoreDeactivateUntil = Environment.TickCount64 + 700;
         ApplyCompactState();
         PositionWindow();
@@ -109,8 +113,160 @@ public partial class MainWindow : Window
         PlayShowAnimation();
     }
 
-    public void HidePalette(bool restoreFocus = true)
+    /// <summary>读取剪贴板和资源管理器当前文件夹，生成空查询时排在最前面的快捷操作。</summary>
+    private void RefreshSuggestions()
     {
+        var suggestions = new List<ResultItem>();
+        var editor = _viewModel.Settings.TextEditorPath;
+        var hasEditor = !string.IsNullOrWhiteSpace(editor) && File.Exists(editor);
+
+        var clipboardPath = ReadClipboardPath();
+        if (clipboardPath is not null)
+        {
+            if (Directory.Exists(clipboardPath))
+            {
+                suggestions.Add(CreateSuggestion("添加至自定义启动", clipboardPath,
+                    () => _viewModel.AddCustomEntryFromPath(clipboardPath)));
+                suggestions.Add(CreateSuggestion("添加至自定义扫描路径", clipboardPath,
+                    () => _viewModel.AddScanPathFromPath(clipboardPath)));
+            }
+            else if (File.Exists(clipboardPath))
+            {
+                suggestions.Add(CreateSuggestion("添加至自定义启动", clipboardPath,
+                    () => _viewModel.AddCustomEntryFromPath(clipboardPath)));
+                if (hasEditor)
+                    suggestions.Add(CreateEditorSuggestion("使用文本编辑器打开", clipboardPath, editor!));
+            }
+        }
+
+        var focusedFolder = GetExplorerFolder(_previousForeground);
+        if (focusedFolder is not null
+            && !string.Equals(focusedFolder, clipboardPath, StringComparison.OrdinalIgnoreCase)
+            && hasEditor
+            && TextEditorCatalog.SupportsFolders(editor))
+            suggestions.Add(CreateEditorSuggestion("使用文本编辑器打开当前文件夹", focusedFolder, editor!));
+
+        _viewModel.SetSuggestions(suggestions);
+    }
+
+    private static ResultItem CreateSuggestion(string title, string path, Action action)
+    {
+        var entry = new AppEntry
+        {
+            Name = title,
+            Target = path,
+            ResolvedTarget = path,
+            Description = path,
+            Kind = EntryKind.Command,
+            Source = EntrySource.Manual
+        };
+        return new ResultItem(entry, action);
+    }
+
+    private ResultItem CreateEditorSuggestion(string title, string path, string editorPath)
+    {
+        var entry = new AppEntry
+        {
+            Name = title,
+            Target = path,
+            ResolvedTarget = path,
+            Description = path,
+            Kind = EntryKind.Command,
+            Source = EntrySource.Manual,
+            IconPath = editorPath
+        };
+        return new ResultItem(entry, () => OpenWithEditor(editorPath, path));
+    }
+
+    private void OpenWithEditor(string editorPath, string targetPath)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = editorPath,
+                Arguments = $"\"{targetPath}\"",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _viewModel.Status = "打开编辑器失败：" + ex.Message;
+        }
+    }
+
+    private static string? ReadClipboardPath()
+    {
+        try
+        {
+            if (!Clipboard.ContainsFileDropList()) return null;
+            foreach (var path in Clipboard.GetFileDropList())
+            {
+                if (!string.IsNullOrWhiteSpace(path) && (File.Exists(path) || Directory.Exists(path)))
+                    return path;
+            }
+        }
+        catch
+        {
+            // 剪贴板被其他程序占用时忽略。
+        }
+        return null;
+    }
+
+    /// <summary>如果呼出前的前台窗口是资源管理器文件夹，返回它的本地路径。</summary>
+    private static string? GetExplorerFolder(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return null;
+        try
+        {
+            GetWindowThreadProcessId(hwnd, out var processId);
+            using var process = Process.GetProcessById((int)processId);
+            if (!string.Equals(process.ProcessName, "explorer", StringComparison.OrdinalIgnoreCase)) return null;
+
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null) return null;
+            object? shell = null;
+            object? windows = null;
+            try
+            {
+                shell = Activator.CreateInstance(shellType);
+                if (shell is null) return null;
+                dynamic dynamicShell = shell;
+                windows = dynamicShell.Windows();
+                if (windows is null) return null;
+
+                dynamic dynamicWindows = windows;
+                foreach (dynamic window in dynamicWindows)
+                {
+                    try
+                    {
+                        if ((long)window.HWND != hwnd.ToInt64()) continue;
+                        var url = (string?)window.LocationURL;
+                        if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        var path = new Uri(url).LocalPath;
+                        return Directory.Exists(path) ? path : null;
+                    }
+                    finally
+                    {
+                        if (window is not null && Marshal.IsComObject(window)) Marshal.FinalReleaseComObject(window);
+                    }
+                }
+            }
+            finally
+            {
+                if (windows is not null && Marshal.IsComObject(windows)) Marshal.FinalReleaseComObject(windows);
+                if (shell is not null && Marshal.IsComObject(shell)) Marshal.FinalReleaseComObject(shell);
+            }
+        }
+        catch
+        {
+            // 资源管理器未运行或 COM 不可用时忽略。
+        }
+        return null;
+    }
+
+    public void HidePalette(bool restoreFocus = true)    {
         Hide();
         if (!_viewModel.Settings.KeepSearchText)
         {
@@ -195,12 +351,12 @@ public partial class MainWindow : Window
                 MoveSelection(1, false);
                 e.Handled = true;
                 break;
-            case Key.Left when IsGridLayout:
-                MoveSelection(-1, true);
+            case Key.Left when _viewModel.Results.Count > 0:
+                MoveSelection(-1, IsGridLayout);
                 e.Handled = true;
                 break;
-            case Key.Right when IsGridLayout:
-                MoveSelection(1, true);
+            case Key.Right when _viewModel.Results.Count > 0:
+                MoveSelection(1, IsGridLayout);
                 e.Handled = true;
                 break;
             case Key.Enter:
@@ -242,12 +398,12 @@ public partial class MainWindow : Window
                 MoveSelection(-1, false);
                 e.Handled = true;
                 break;
-            case Key.Left when IsGridLayout && string.IsNullOrEmpty(SearchBox.Text):
-                MoveSelection(-1, true);
+            case Key.Left when _viewModel.Results.Count > 0:
+                MoveSelection(-1, IsGridLayout);
                 e.Handled = true;
                 break;
-            case Key.Right when IsGridLayout && string.IsNullOrEmpty(SearchBox.Text):
-                MoveSelection(1, true);
+            case Key.Right when _viewModel.Results.Count > 0:
+                MoveSelection(1, IsGridLayout);
                 e.Handled = true;
                 break;
             case Key.PageDown:
@@ -344,8 +500,20 @@ public partial class MainWindow : Window
 
     private void ResultsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
+        if (_viewModel.Settings.LaunchOnSingleClick) return;
         if (_viewModel.Selected is null) return;
         TryLaunchSelected(false, false);
+    }
+
+    private void ResultsList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_viewModel.Settings.LaunchOnSingleClick) return;
+        if (e.OriginalSource is not DependencyObject source) return;
+        var item = FindAncestor<ListBoxItem>(source);
+        if (item?.DataContext is not ResultItem result) return;
+        ResultsList.SelectedItem = result;
+        TryLaunchSelected(false, false);
+        e.Handled = true;
     }
 
     private void ResultsList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -454,47 +622,68 @@ public partial class MainWindow : Window
         AdminHintChip.Visibility = Visibility.Visible;
     }
 
-    private void UpdateEmptyState()
+    private void UpdateEmptyState() => ApplyCompactState();
+
+    private bool ShouldCollapseToSearchBox()
     {
-        var compact = _viewModel.Settings.CompactMode && string.IsNullOrEmpty(SearchBox.Text);
-        if (compact)
-        {
-            EmptyPanel.Visibility = Visibility.Collapsed;
-            ResultsList.Visibility = Visibility.Collapsed;
-            return;
-        }
-        var empty = _viewModel.Results.Count == 0;
-        EmptyPanel.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-        ResultsList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-        if (empty)
-        {
-            var home = string.IsNullOrEmpty(_viewModel.Query);
-            EmptyTitleText.Text = home ? "还没有常用应用" : "没有找到匹配项";
-            EmptyHintText.Text = home
-                ? "输入名称开始搜索，打开过的应用会显示在这里"
-                : "换个关键词，或把文件 / 文件夹直接拖进来添加";
-        }
+        if (!string.IsNullOrEmpty(SearchBox.Text)) return false;
+        // 没有历史记录时只保留一个搜索框；开启紧凑模式时同理。
+        return _viewModel.Settings.CompactMode || _viewModel.Results.Count == 0;
     }
 
     private void ApplyCompactState()
     {
-        var compact = _viewModel.Settings.CompactMode && string.IsNullOrEmpty(SearchBox.Text);
-        var targetHeight = compact ? CompactHeight : PaletteHeight;
-        if (compact)
+        var collapse = ShouldCollapseToSearchBox();
+        if (collapse)
         {
             FooterRow.Height = new GridLength(0);
             ContentRow.Height = new GridLength(0);
             FooterBorder.Visibility = Visibility.Collapsed;
+            EmptyPanel.Visibility = Visibility.Collapsed;
+            ResultsList.Visibility = Visibility.Collapsed;
         }
         else
         {
             FooterRow.Height = new GridLength(40);
             ContentRow.Height = new GridLength(1, GridUnitType.Star);
             FooterBorder.Visibility = Visibility.Visible;
+
+            var empty = _viewModel.Results.Count == 0;
+            EmptyPanel.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            ResultsList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+            if (empty)
+            {
+                EmptyTitleText.Text = "没有找到匹配项";
+                EmptyHintText.Text = "换个关键词，或把文件 / 文件夹直接拖进来添加";
+            }
         }
-        if (Math.Abs(Height - targetHeight) > 0.5) Height = targetHeight;
-        if (IsVisible) PositionWindow();
-        UpdateEmptyState();
+
+        var targetHeight = DesiredHeight();
+        var heightChanged = Math.Abs(Height - targetHeight) > 0.5;
+        if (heightChanged) Height = targetHeight;
+        if (IsVisible && heightChanged) PositionWindow();
+    }
+
+    /// <summary>按当前候选数量计算高度，最大不超过 PaletteHeight，没有候选时只保留搜索框。</summary>
+    private double DesiredHeight()
+    {
+        if (ShouldCollapseToSearchBox()) return CompactHeight;
+
+        var count = Math.Max(1, _viewModel.Results.Count);
+        double contentHeight;
+        if (IsGridLayout)
+        {
+            var width = Width > 0 ? Width : PaletteWidth;
+            var columns = Math.Max(1, (int)((width - 28) / 92));
+            var rows = (int)Math.Ceiling(count / (double)columns);
+            contentHeight = rows * 92 + 8;
+        }
+        else
+        {
+            contentHeight = count * 58 + 8;
+        }
+
+        return Math.Clamp(72 + 40 + contentHeight, CompactHeight, PaletteHeight);
     }
 
     private void PositionWindow()
@@ -505,8 +694,7 @@ public partial class MainWindow : Window
             var monitor = MonitorService.GetTarget(_viewModel.Settings, hwnd);
             var work = monitor.WorkArea;
             var width = Math.Max(320, Math.Min(PaletteWidth, work.Width - 40));
-            var compact = _viewModel.Settings.CompactMode && string.IsNullOrEmpty(SearchBox.Text);
-            var height = compact ? CompactHeight : PaletteHeight;
+            var height = DesiredHeight();
             height = Math.Max(CompactHeight, Math.Min(height, work.Height - 24));
 
             var top = _viewModel.Settings.PalettePosition switch

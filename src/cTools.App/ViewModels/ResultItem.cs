@@ -9,9 +9,10 @@ public sealed class ResultItem : ObservableObject
 {
     private ImageSource? _icon;
 
-    public ResultItem(AppEntry entry)
+    public ResultItem(AppEntry entry, Action? action = null)
     {
         Entry = entry;
+        Action = action;
         Glyph = entry.Kind switch
         {
             EntryKind.Folder => "\uE8B7",
@@ -21,10 +22,17 @@ public sealed class ResultItem : ObservableObject
             _ => "\uE71D"
         };
         Subtitle = BuildSubtitle(entry);
-        _ = LoadIconAsync();
+
+        var iconPath = entry.IconPath ?? entry.ResolvedTarget ?? entry.Target;
+        var fallback = entry.ResolvedTarget;
+        if (IconService.TryGetCached(iconPath, fallback, out var cached))
+            _icon = cached;
+        else
+            _ = LoadIconAsync(iconPath, fallback);
     }
 
     public AppEntry Entry { get; }
+    public Action? Action { get; }
     public string Name => Entry.Name;
     public string Subtitle { get; }
     public string Glyph { get; }
@@ -47,10 +55,8 @@ public sealed class ResultItem : ObservableObject
         return text.Length <= 110 ? text : text[..107] + "…";
     }
 
-    private async Task LoadIconAsync()
+    private async Task LoadIconAsync(string path, string? fallback)
     {
-        var path = Entry.IconPath ?? Entry.ResolvedTarget ?? Entry.Target;
-        var fallback = Entry.ResolvedTarget;
         var icon = await Task.Run(() => IconService.GetIcon(path, fallback));
         if (icon is null) return;
         var dispatcher = Application.Current?.Dispatcher;

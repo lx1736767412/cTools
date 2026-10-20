@@ -55,8 +55,8 @@ internal static class Program
         RenderSettingsTab(settings, 1, Path.Combine(output, "settings-layout-light.png"));
         RenderSettingsTab(settings, 0, Path.Combine(output, "settings-general-light.png"));
         RenderSettingsTab(settings, 2, Path.Combine(output, "settings-scope-light.png"));
-        RenderSettingsTab(settings, 3, Path.Combine(output, "settings-custom-light.png"));
-        RenderSettingsTab(settings, 4, Path.Combine(output, "settings-hotkey-light.png"));
+        RenderSettingsTab(settings, 3, Path.Combine(output, "settings-hotkey-light.png"));
+        RenderSettingsTab(settings, 4, Path.Combine(output, "settings-clipboard-light.png"));
         RenderSettingsTab(settings, 5, Path.Combine(output, "settings-about-light.png"));
 
         var editor = new CustomEntryWindow(viewModel.Settings.CustomEntries[0]);
@@ -90,7 +90,6 @@ internal static class Program
         var darkSettings = new SettingsWindow(viewModel, 1);
         InvokeLoadControls(darkSettings);
         RenderSettingsTab(darkSettings, 1, Path.Combine(output, "settings-layout-dark.png"));
-        RenderSettingsTab(darkSettings, 3, Path.Combine(output, "settings-custom-dark.png"));
 
         Console.WriteLine("UI preview written to " + output);
     }

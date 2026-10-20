@@ -15,6 +15,8 @@ public sealed class MainViewModel : ObservableObject
 {
     private readonly AppScanner _scanner = new();
     private List<AppEntry> _entries = new();
+    private List<ResultItem> _suggestions = new();
+    private readonly Dictionary<string, ResultItem> _resultItems = new(StringComparer.OrdinalIgnoreCase);
     private SearchIndex _index = SearchIndex.Build(Array.Empty<AppEntry>());
     private CancellationTokenSource? _scanCts;
     private DispatcherTimer? _saveTimer;
@@ -32,6 +34,7 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel(AppSettings? settings)
     {
         Settings = settings?.Clone() ?? ConfigStore.Load();
+        TextEditorCatalog.EnsureConfigured(Settings);
     }
 
     public AppSettings Settings { get; private set; }
@@ -82,6 +85,7 @@ public sealed class MainViewModel : ObservableObject
         {
             _entries = cached;
             _index = SearchIndex.Build(_entries);
+            IconService.Prewarm(_entries);
             Status = $"{_entries.Count} 项 · 缓存索引";
             UpdateScanSummary();
         }
@@ -108,7 +112,9 @@ public sealed class MainViewModel : ObservableObject
             if (cts.IsCancellationRequested) return;
             MergeUsage(entries);
             _entries = entries;
+            _resultItems.Clear();
             _index = SearchIndex.Build(entries);
+            IconService.Prewarm(entries);
             if (persistCache) IndexCache.Save(entries);
             Status = $"{entries.Count} 项 · 更新于 {DateTime.Now:HH:mm}";
             UpdateScanSummary();
@@ -139,8 +145,11 @@ public sealed class MainViewModel : ObservableObject
         var selectedId = Selected?.Entry.Id;
         var hits = _index.Search(Query, Math.Clamp(Settings.MaxResults, 5, 200));
         Results.Clear();
+        if (string.IsNullOrEmpty(Query))
+            foreach (var suggestion in _suggestions)
+                Results.Add(suggestion);
         foreach (var hit in hits)
-            Results.Add(new ResultItem(hit.Entry));
+            Results.Add(GetResultItem(hit.Entry));
         if (selectedId is not null)
             Selected = Results.FirstOrDefault(r => r.Entry.Id == selectedId) ?? Results.FirstOrDefault();
         else
@@ -149,10 +158,34 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CountText));
     }
 
+    /// <summary>同一应用在多次查询间复用 ResultItem，图标只需加载一次。</summary>
+    private ResultItem GetResultItem(AppEntry entry)
+    {
+        entry.EnsureId();
+        if (_resultItems.TryGetValue(entry.Id, out var item) && ReferenceEquals(item.Entry, entry))
+            return item;
+
+        item = new ResultItem(entry);
+        _resultItems[entry.Id] = item;
+        return item;
+    }
+
+    /// <summary>设置空查询时排在最前面的剪贴板 / 当前文件夹建议。</summary>
+    public void SetSuggestions(IEnumerable<ResultItem> suggestions)
+    {
+        _suggestions = suggestions.ToList();
+        Refresh();
+    }
+
     public bool LaunchSelected(bool admin, bool openLocation)
     {
         var item = Selected;
         if (item is null) return false;
+        if (item.Action is not null)
+        {
+            item.Action();
+            return true;
+        }
         if (openLocation)
         {
             if (item.Entry.Kind is EntryKind.Url or EntryKind.Uwp or EntryKind.SystemSetting)
@@ -178,6 +211,7 @@ public sealed class MainViewModel : ObservableObject
         }
         item.Entry.UseCount++;
         item.Entry.LastUsedAt = DateTime.Now;
+        item.Entry.RecordQueryUsage(TextNormalizer.Normalize(Query));
         ScheduleSave();
         if (string.IsNullOrEmpty(Query)) Refresh();
         return true;
@@ -228,6 +262,53 @@ public sealed class MainViewModel : ObservableObject
         _ = RebuildIndexAsync();
     }
 
+    public bool AddCustomEntryFromPath(string path)
+    {
+        path = path.Trim().Trim('"');
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (Settings.CustomEntries.Any(e => string.Equals(e.Target, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = "该项目已在自定义启动中";
+            return false;
+        }
+
+        var isFolder = Directory.Exists(path);
+        var name = isFolder
+            ? new DirectoryInfo(path).Name
+            : EntryKindDetector.DefaultNameFor(path);
+        if (string.IsNullOrWhiteSpace(name)) name = Path.GetFileName(path);
+        Settings.CustomEntries.Add(new CustomEntry
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? path : name,
+            Target = path,
+            Kind = isFolder ? EntryKind.Folder : EntryKindDetector.Infer(path),
+            Enabled = true
+        });
+        Settings.Search.CustomEntries = true;
+        ConfigStore.Save(Settings);
+        Status = "已添加至自定义启动";
+        _ = RebuildIndexAsync();
+        return true;
+    }
+
+    public bool AddScanPathFromPath(string path)
+    {
+        path = path.Trim().Trim('"');
+        if (!Directory.Exists(path)) return false;
+        if (Settings.CustomPaths.Any(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = "该路径已在自定义扫描路径中";
+            return false;
+        }
+
+        Settings.CustomPaths.Add(new CustomPath { Path = path, Recursive = true, Enabled = true });
+        Settings.Search.CustomPaths = true;
+        ConfigStore.Save(Settings);
+        Status = "已添加至自定义扫描路径";
+        _ = RebuildIndexAsync();
+        return true;
+    }
+
     public void RemoveSelectedCustom()
     {
         if (Selected is null) return;
@@ -259,6 +340,20 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public int CountBySource(EntrySource source) => _entries.Count(e => e.Source == source);
+
+    /// <summary>清空最近使用、使用次数和按搜索词的选中记录。</summary>
+    public void ClearUsageHistory()
+    {
+        foreach (var entry in _entries)
+        {
+            entry.UseCount = 0;
+            entry.LastUsedAt = null;
+            entry.QueryUsage?.Clear();
+        }
+        IndexCache.Save(_entries);
+        Refresh();
+        Status = "已清除搜索记录";
+    }
 
     private void UpdateScanSummary()
     {
@@ -294,6 +389,12 @@ public sealed class MainViewModel : ObservableObject
             entry.UseCount = previous.UseCount;
             entry.LastUsedAt = previous.LastUsedAt;
             entry.Pinned = previous.Pinned;
+            if (previous.QueryUsage is { Count: > 0 })
+            {
+                entry.QueryUsage ??= new Dictionary<string, int>();
+                foreach (var (query, count) in previous.QueryUsage)
+                    entry.QueryUsage[query] = entry.QueryUsage.TryGetValue(query, out var existing) ? existing + count : count;
+            }
         }
     }
 

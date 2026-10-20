@@ -48,6 +48,16 @@ public sealed class AppEntry
     public int UseCount { get; set; }
     public DateTime? LastUsedAt { get; set; }
 
+    /// <summary>按搜索词记录用户选中过的次数，用于让同一个搜索词的候选顺序逐渐稳定。</summary>
+    public Dictionary<string, int> QueryUsage { get; set; } = new();
+
+    public void RecordQueryUsage(string normalizedQuery)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedQuery)) return;
+        QueryUsage ??= new Dictionary<string, int>();
+        QueryUsage[normalizedQuery] = QueryUsage.TryGetValue(normalizedQuery, out var count) ? count + 1 : 1;
+    }
+
     public static string MakeId(EntryKind kind, string target, string name)
     {
         var raw = $"{kind}|{target}|{name}".ToLowerInvariant();
@@ -65,6 +75,7 @@ public sealed class AppEntry
     {
         var clone = (AppEntry)MemberwiseClone();
         clone.Keywords = new List<string>(Keywords);
+        clone.QueryUsage = new Dictionary<string, int>(QueryUsage ?? new Dictionary<string, int>());
         return clone;
     }
 }

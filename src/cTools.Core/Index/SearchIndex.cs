@@ -88,6 +88,10 @@ public sealed class SearchIndex
                 if (kind.Length == 0) kind = tokenKind;
             }
             if (!matchedAll) continue;
+            // 同一个搜索词下用户上次/多次选择过的条目优先，形成稳定的“肌肉记忆”排序。
+            if (entry.Entry.QueryUsage is { Count: > 0 } queryUsage
+                && queryUsage.TryGetValue(normalized, out var queryCount))
+                total += 1500 + (int)(Math.Log2(queryCount + 1) * 120);
             total += (int)(Math.Log2(entry.Entry.UseCount + 1) * 18);
             if (entry.Entry.Pinned) total += 2000;
             if (entry.Entry.LastUsedAt is { } last)

@@ -22,4 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\cTools.Core\cTools.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Resource Include="..\..\assets\cTools.ico" Link="Assets\cTools.ico" />
+  </ItemGroup>
 </Project>

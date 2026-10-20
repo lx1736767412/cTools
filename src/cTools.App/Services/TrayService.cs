@@ -7,6 +7,7 @@ public sealed class TrayService : IDisposable
 {
     private readonly NotifyIcon _icon;
     private readonly ContextMenuStrip _menu;
+    private readonly Icon? _appIcon;
 
     public TrayService(Action show, Action settings, Action rebuild, Action checkUpdates, Action exit)
     {
@@ -28,9 +29,10 @@ public sealed class TrayService : IDisposable
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(exitItem);
 
+        _appIcon = LoadAppIcon();
         _icon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _appIcon ?? SystemIcons.Application,
             Text = "cTools",
             Visible = true,
             ContextMenuStrip = _menu
@@ -44,6 +46,38 @@ public sealed class TrayService : IDisposable
     {
         _icon.Visible = false;
         _icon.Dispose();
+        _appIcon?.Dispose();
         _menu.Dispose();
+    }
+
+    private static Icon? LoadAppIcon()
+    {
+        try
+        {
+            var resource = System.Windows.Application.GetResourceStream(
+                new Uri("pack://application:,,,/cTools;component/Assets/cTools.ico"));
+            if (resource is not null)
+            {
+                using var stream = resource.Stream;
+                using var icon = new Icon(stream);
+                return (Icon)icon.Clone();
+            }
+        }
+        catch
+        {
+            // 资源读取失败时退回 exe 图标。
+        }
+
+        try
+        {
+            var executable = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(executable))
+                return Icon.ExtractAssociatedIcon(executable);
+        }
+        catch
+        {
+            // 忽略，最后使用系统默认图标。
+        }
+        return null;
     }
 }

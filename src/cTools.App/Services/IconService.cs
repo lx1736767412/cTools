@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using cTools.Core.Models;
 
 namespace cTools.App.Services;
 
@@ -68,6 +69,57 @@ public static class IconService
 
     private static readonly ConcurrentDictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>缓存命中时同步返回图标，避免结果项先显示占位符再补图标。</summary>
+    public static bool TryGetCached(string? path, string? fallbackPath, out ImageSource? icon)
+    {
+        icon = null;
+        if (string.IsNullOrWhiteSpace(path) && string.IsNullOrWhiteSpace(fallbackPath)) return false;
+        return Cache.TryGetValue(BuildCacheKey(path, fallbackPath), out icon);
+    }
+
+    /// <summary>在后台预热常用应用的图标；不阻塞索引和首帧。</summary>
+    public static void Prewarm(IEnumerable<AppEntry> entries, int limit = 80)
+    {
+        var targets = entries
+            .Where(entry => entry.Enabled)
+            .OrderByDescending(entry => entry.Pinned)
+            .ThenByDescending(entry => entry.UseCount)
+            .ThenByDescending(entry => entry.LastUsedAt)
+            .Take(Math.Max(1, limit))
+            .Select(entry => (
+                Path: entry.IconPath ?? entry.ResolvedTarget ?? entry.Target,
+                Fallback: entry.ResolvedTarget))
+            .Where(target => !string.IsNullOrWhiteSpace(target.Path))
+            .Where(target => !TryGetCached(target.Path, target.Fallback, out _))
+            .DistinctBy(target => BuildCacheKey(target.Path, target.Fallback), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (targets.Count == 0) return;
+
+        _ = Task.Run(() =>
+        {
+            foreach (var target in targets)
+            {
+                try
+                {
+                    GetIcon(target.Path, target.Fallback);
+                }
+                catch
+                {
+                    // 预热失败不影响正常搜索。
+                }
+            }
+        });
+    }
+
+    private static bool IsUwpPath(string? path)
+        => path is not null
+           && !path.Contains('\\')
+           && !path.Contains('/')
+           && !Path.IsPathRooted(path);
+
+    private static string BuildCacheKey(string? path, string? fallbackPath)
+        => $"{(IsUwpPath(path) ? "uwp:" : "")}{path}|{fallbackPath}";
+
     /// <summary>
     /// 优先使用 Windows Shell 的图标（<see cref="IShellItemImageFactory"/>），
     /// 失败时退回 <c>SHGetFileInfo</c>，最后直接读取 exe 的图标资源。
@@ -77,14 +129,13 @@ public static class IconService
         if (string.IsNullOrWhiteSpace(path) && string.IsNullOrWhiteSpace(fallbackPath)) return null;
         if (path is not null && path.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase)) return null;
 
-        var isUwp = path is not null && path.Contains('!') && !path.Contains('\\') && !path.Contains('/');
-        var cacheKey = $"{(isUwp ? "uwp:" : "")}{path}|{fallbackPath}";
+        var isUwp = IsUwpPath(path);
+        var cacheKey = BuildCacheKey(path, fallbackPath);
         if (Cache.TryGetValue(cacheKey, out var cached)) return cached;
 
         ImageSource? result = null;
         if (!string.IsNullOrWhiteSpace(path))
         {
-            isUwp = isUwp || (!path.Contains('\\') && !path.Contains('/') && !Path.IsPathRooted(path));
             if (isUwp)
             {
                 result = GetShellImage(path, 64);

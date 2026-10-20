@@ -4,10 +4,12 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using cTools.App.Services;
 using cTools.App.ViewModels;
 using cTools.Core.Models;
+using cTools.Core.Scanning;
 using cTools.Core.Storage;
 using WinForms = System.Windows.Forms;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
@@ -20,7 +22,7 @@ public partial class SettingsWindow : Window
 {
     private static readonly string[] KnownExtensions =
     {
-        ".exe", ".lnk", ".url", ".appref-ms", ".bat", ".cmd", ".ps1", ".msi"
+        ".exe", ".lnk"
     };
 
     public sealed record MonitorChoice(string Label, MonitorPreference Mode, string? DeviceName)
@@ -28,9 +30,15 @@ public partial class SettingsWindow : Window
         public override string ToString() => Label;
     }
 
+    public sealed record EditorChoice(string Label, string Path)
+    {
+        public override string ToString() => Label;
+    }
+
     private readonly MainViewModel _viewModel;
     private readonly AppSettings _settings;
     private readonly List<MonitorChoice> _monitorChoices = new();
+    private readonly List<EditorChoice> _editorChoices = new();
     private readonly DispatcherTimer _saveFeedbackTimer;
     private readonly DispatcherTimer _applyTimer;
     private bool _loading;
@@ -59,6 +67,10 @@ public partial class SettingsWindow : Window
         AddHandler(System.Windows.Controls.Primitives.ToggleButton.UncheckedEvent, new RoutedEventHandler(LiveControlChanged), true);
         AddHandler(System.Windows.Controls.TextBox.TextChangedEvent, new TextChangedEventHandler(LiveControlChanged), true);
         AddHandler(System.Windows.Controls.Primitives.Selector.SelectionChangedEvent, new SelectionChangedEventHandler(LiveControlChanged), true);
+
+        // 列表内部滚到边缘后，把滚轮交给外层页面，避免鼠标停在列表上时页面无法滚动。
+        CustomEntriesList.PreviewMouseWheel += ForwardWheelToPage;
+        CustomPathsList.PreviewMouseWheel += ForwardWheelToPage;
 
         SourceInitialized += (_, _) => ApplyWindowTheme();
         Loaded += (_, _) => LoadControls();
@@ -119,6 +131,7 @@ public partial class SettingsWindow : Window
         ApplyControlsToSettings();
         AutoStart.SetEnabled(_settings.StartWithWindows);
         _viewModel.ApplySettings(_settings);
+        UpdateEditorStatus();
         ApplyWindowTheme();
         ShowSavedFeedback();
     }
@@ -156,6 +169,8 @@ public partial class SettingsWindow : Window
         SelectSearchTextBox.IsChecked = _settings.SelectSearchTextOnOpen;
         KeepSearchTextBox.IsChecked = _settings.KeepSearchText;
         CompactModeBox.IsChecked = _settings.CompactMode;
+        SingleClickRadio.IsChecked = _settings.LaunchOnSingleClick;
+        DoubleClickRadio.IsChecked = !_settings.LaunchOnSingleClick;
         SpaceToLaunchBox.IsChecked = _settings.SpaceToLaunch;
         SuppressFullscreenBox.IsChecked = _settings.SuppressHotkeyInFullscreen;
         MaxResultsBox.Text = _settings.MaxResults.ToString();
@@ -175,11 +190,6 @@ public partial class SettingsWindow : Window
             StringComparer.OrdinalIgnoreCase);
         ScanExeBox.IsChecked = extensions.Contains(".exe");
         ScanLnkBox.IsChecked = extensions.Contains(".lnk");
-        ScanUrlBox.IsChecked = extensions.Contains(".url");
-        ScanAppRefBox.IsChecked = extensions.Contains(".appref-ms");
-        ScanBatBox.IsChecked = extensions.Contains(".bat") || extensions.Contains(".cmd");
-        ScanPs1Box.IsChecked = extensions.Contains(".ps1");
-        ScanMsiBox.IsChecked = extensions.Contains(".msi");
         var extras = _settings.ScanExtensions
             .Select(EntryKindDetector.NormalizeExtension)
             .Where(extension => extension.Length > 1 && !KnownExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
@@ -198,11 +208,39 @@ public partial class SettingsWindow : Window
         UpdateStatusText.Text = "当前版本 " + UpdateService.CurrentVersionText + "。";
 
         LoadMonitors();
+        LoadEditors();
         }
         finally
         {
             _loading = false;
         }
+    }
+
+    private void LoadEditors()
+    {
+        TextEditorCatalog.EnsureConfigured(_settings);
+        _editorChoices.Clear();
+        foreach (var path in _settings.TextEditors)
+            _editorChoices.Add(new EditorChoice(TextEditorCatalog.DisplayName(path), path));
+
+        TextEditorCombo.ItemsSource = null;
+        TextEditorCombo.ItemsSource = _editorChoices;
+        var index = _editorChoices.FindIndex(choice =>
+            string.Equals(choice.Path, _settings.TextEditorPath, StringComparison.OrdinalIgnoreCase));
+        TextEditorCombo.SelectedIndex = index >= 0 ? index : (_editorChoices.Count > 0 ? 0 : -1);
+        UpdateEditorStatus();
+    }
+
+    private void UpdateEditorStatus()
+    {
+        if (TextEditorCombo.SelectedItem is not EditorChoice choice)
+        {
+            EditorStatusText.Text = "未找到文本编辑器，请添加一个程序。";
+            return;
+        }
+        EditorStatusText.Text = TextEditorCatalog.SupportsFolders(choice.Path)
+            ? "当前编辑器支持直接打开文件夹。"
+            : "当前编辑器不支持打开文件夹；打开文件夹时不会显示相关候选。";
     }
 
     private void LoadMonitors()
@@ -255,6 +293,7 @@ public partial class SettingsWindow : Window
         _settings.SelectSearchTextOnOpen = SelectSearchTextBox.IsChecked == true;
         _settings.KeepSearchText = KeepSearchTextBox.IsChecked == true;
         _settings.CompactMode = CompactModeBox.IsChecked == true;
+        _settings.LaunchOnSingleClick = SingleClickRadio.IsChecked == true;
         _settings.AutoCheckUpdates = AutoUpdateBox.IsChecked == true;
         _settings.Search.MaxScanDepth = Math.Clamp(
             maxDepth ?? (int.TryParse(MaxDepthBox.Text.Trim(), out var depth) ? depth : 6), 1, 12);
@@ -279,6 +318,8 @@ public partial class SettingsWindow : Window
             .Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        if (TextEditorCombo.SelectedItem is EditorChoice editor)
+            _settings.TextEditorPath = editor.Path;
     }
 
     private List<string> BuildExtensions()
@@ -292,11 +333,6 @@ public partial class SettingsWindow : Window
 
         Add(ScanExeBox.IsChecked == true, ".exe");
         Add(ScanLnkBox.IsChecked == true, ".lnk");
-        Add(ScanUrlBox.IsChecked == true, ".url");
-        Add(ScanAppRefBox.IsChecked == true, ".appref-ms");
-        Add(ScanBatBox.IsChecked == true, ".bat", ".cmd");
-        Add(ScanPs1Box.IsChecked == true, ".ps1");
-        Add(ScanMsiBox.IsChecked == true, ".msi");
 
         foreach (var raw in ExtraExtensionsBox.Text.Split(new[] { ',', ';', ' ', '\r', '\n' },
                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -305,6 +341,23 @@ public partial class SettingsWindow : Window
             if (extension.Length > 1) extensions.Add(extension);
         }
         return extensions.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private void AddEditor_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择文本编辑器",
+            Filter = "可执行文件|*.exe|所有文件|*.*"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        var path = Path.GetFullPath(dialog.FileName);
+        if (!_settings.TextEditors.Contains(path, StringComparer.OrdinalIgnoreCase))
+            _settings.TextEditors.Add(path);
+        _settings.TextEditorPath = path;
+        LoadEditors();
+        QueueApply();
     }
 
     private void ResetHotkey_Click(object sender, RoutedEventArgs e)
@@ -479,6 +532,16 @@ public partial class SettingsWindow : Window
         QueueApply();
     }
 
+    private void ClearHistory_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(this, "清除所有搜索记录和最近使用排序？", "cTools",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+        _viewModel.ClearUsageHistory();
+        ScanStatusText.Text = "已清除搜索记录";
+        ScanSummaryText.Text = _viewModel.ScanSummary;
+    }
+
     private async void Rebuild_Click(object sender, RoutedEventArgs e)
     {
         RebuildButton.IsEnabled = false;
@@ -528,6 +591,46 @@ public partial class SettingsWindow : Window
         HotkeyBox.CaretIndex = HotkeyBox.Text.Length;
         HotkeyStatusText.Text = "";
         e.Handled = true;
+    }
+
+    private void ForwardWheelToPage(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not DependencyObject source) return;
+        var inner = FindDescendant<ScrollViewer>(source);
+        var outer = FindAncestor<ScrollViewer>(source);
+        if (inner is null || outer is null) return;
+
+        var scrollingUp = e.Delta > 0;
+        var atTop = inner.VerticalOffset <= 0.5;
+        var atBottom = inner.VerticalOffset >= inner.ScrollableHeight - 0.5;
+        if ((scrollingUp && atTop) || (!scrollingUp && atBottom))
+        {
+            outer.ScrollToVerticalOffset(outer.VerticalOffset - e.Delta * 0.5);
+            e.Handled = true;
+        }
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < count; index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match) return match;
+            var nested = FindDescendant<T>(child);
+            if (nested is not null) return nested;
+        }
+        return null;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
+    {
+        while (current is not null)
+        {
+            if (current is T match) return match;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
     }
 
     private void OpenDataFolder_Click(object sender, RoutedEventArgs e)

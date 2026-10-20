@@ -49,6 +49,7 @@ public sealed class AppSettings
     public bool CompactMode { get; set; }
     public bool StartWithWindows { get; set; }
     public bool HideOnBlur { get; set; } = true;
+    public bool LaunchOnSingleClick { get; set; }
     public bool SelectSearchTextOnOpen { get; set; } = true;
     public bool KeepSearchText { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
@@ -58,6 +59,10 @@ public sealed class AppSettings
     public bool AutoCheckUpdates { get; set; } = true;
     /// <summary>用户选择“跳过此版本”时记录的 Release 标签。</summary>
     public string? SkippedUpdateTag { get; set; }
+
+    // ── 剪切板 / 文本编辑器 ───────────────────────────────────
+    public List<string> TextEditors { get; set; } = new();
+    public string? TextEditorPath { get; set; }
 
     // ── 呼出位置 ─────────────────────────────────────────────
     public MonitorPreference PreferredMonitor { get; set; } = MonitorPreference.Cursor;
@@ -105,6 +110,7 @@ public sealed class AppSettings
         clone.CustomEntries = (CustomEntries ?? new List<CustomEntry>()).Select(e => e.Clone()).ToList();
         clone.ScanExtensions = new List<string>(ScanExtensions ?? new List<string>());
         clone.ExcludePatterns = new List<string>(ExcludePatterns ?? new List<string>());
+        clone.TextEditors = new List<string>(TextEditors ?? new List<string>());
         return clone;
     }
 }
