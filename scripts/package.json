@@ -1,0 +1,8 @@
+{
+  "name": "rtools-session-migration",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "fzstd": "^0.1.1"
+  }
+}
