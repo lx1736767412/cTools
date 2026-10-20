@@ -12,6 +12,7 @@ public static class AppPaths
     public static string SettingsFile => Path.Combine(DataRoot, "settings.json");
     public static string IndexFile => Path.Combine(LocalRoot, "index.json");
     public static string IconCacheDir => Path.Combine(LocalRoot, "icons");
+    public static string UpdatesDir => Path.Combine(LocalRoot, "updates");
     public static string LogFile => Path.Combine(LocalRoot, "logs", "ctools.log");
 
     /// <summary>从改名前的 RTools 目录一次性迁移设置和索引，避免重命名后丢失配置。</summary>

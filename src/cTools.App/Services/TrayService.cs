@@ -8,7 +8,7 @@ public sealed class TrayService : IDisposable
     private readonly NotifyIcon _icon;
     private readonly ContextMenuStrip _menu;
 
-    public TrayService(Action show, Action settings, Action rebuild, Action exit)
+    public TrayService(Action show, Action settings, Action rebuild, Action checkUpdates, Action exit)
     {
         _menu = new ContextMenuStrip();
         var showItem = new ToolStripMenuItem("打开 cTools") { Font = new Font(_menu.Font, System.Drawing.FontStyle.Bold) };
@@ -17,11 +17,14 @@ public sealed class TrayService : IDisposable
         settingsItem.Click += (_, _) => settings();
         var rebuildItem = new ToolStripMenuItem("重建索引");
         rebuildItem.Click += (_, _) => rebuild();
+        var checkUpdatesItem = new ToolStripMenuItem("检查更新");
+        checkUpdatesItem.Click += (_, _) => checkUpdates();
         var exitItem = new ToolStripMenuItem("退出");
         exitItem.Click += (_, _) => exit();
         _menu.Items.Add(showItem);
         _menu.Items.Add(settingsItem);
         _menu.Items.Add(rebuildItem);
+        _menu.Items.Add(checkUpdatesItem);
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(exitItem);
 

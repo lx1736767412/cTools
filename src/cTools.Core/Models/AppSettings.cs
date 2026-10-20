@@ -54,6 +54,11 @@ public sealed class AppSettings
     public bool ShowTrayIcon { get; set; } = true;
     public int MaxResults { get; set; } = 50;
 
+    // ── 更新 ─────────────────────────────────────────────────
+    public bool AutoCheckUpdates { get; set; } = true;
+    /// <summary>用户选择“跳过此版本”时记录的 Release 标签。</summary>
+    public string? SkippedUpdateTag { get; set; }
+
     // ── 呼出位置 ─────────────────────────────────────────────
     public MonitorPreference PreferredMonitor { get; set; } = MonitorPreference.Cursor;
     public string? PreferredMonitorDevice { get; set; }

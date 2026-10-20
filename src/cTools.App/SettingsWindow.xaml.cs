@@ -154,8 +154,10 @@ public partial class SettingsWindow : Window
         ExcludePatternsBox.Text = string.Join(Environment.NewLine, _settings.ExcludePatterns);
         HotkeyBox.Text = _settings.Hotkey;
         ScanSummaryText.Text = _viewModel.ScanSummary;
-        VersionText.Text = "版本 " + (typeof(SettingsWindow).Assembly.GetName().Version?.ToString() ?? "1.0.0");
+        VersionText.Text = "版本 " + UpdateService.CurrentVersionText;
         DataPathText.Text = "设置：" + AppPaths.SettingsFile + Environment.NewLine + "索引：" + AppPaths.IndexFile;
+        AutoUpdateBox.IsChecked = _settings.AutoCheckUpdates;
+        UpdateStatusText.Text = "当前版本 " + UpdateService.CurrentVersionText + "。";
 
         LoadMonitors();
     }
@@ -243,6 +245,7 @@ public partial class SettingsWindow : Window
         _settings.SelectSearchTextOnOpen = SelectSearchTextBox.IsChecked == true;
         _settings.KeepSearchText = KeepSearchTextBox.IsChecked == true;
         _settings.CompactMode = CompactModeBox.IsChecked == true;
+        _settings.AutoCheckUpdates = AutoUpdateBox.IsChecked == true;
         _settings.Search.MaxScanDepth = Math.Clamp(
             maxDepth ?? (int.TryParse(MaxDepthBox.Text.Trim(), out var depth) ? depth : 6), 1, 12);
 
@@ -525,6 +528,25 @@ public partial class SettingsWindow : Window
     {
         Directory.CreateDirectory(AppPaths.DataRoot);
         Process.Start(new ProcessStartInfo("explorer.exe", AppPaths.DataRoot) { UseShellExecute = true });
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateStatusText.Text = "正在检查更新…";
+        try
+        {
+            var found = await ((App)Application.Current).CheckForUpdatesAsync(manual: true);
+            UpdateStatusText.Text = found ? "发现新版本，已打开更新窗口。" : "已是最新版本。";
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = "检查失败：" + ex.Message;
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
     }
 
     private void OpenLog_Click(object sender, RoutedEventArgs e)

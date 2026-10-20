@@ -68,8 +68,15 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; 应用内自动更新：安装完成后重新启动 cTools。
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--updated"; Flags: nowait; Check: IsAutoUpdate
 
 [Code]
+function IsAutoUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:AUTOUPDATE|0}') = '1';
+end;
+
 { 卸载时顺手清掉应用自己写入的 HKCU 开机启动项，避免留下失效路径。 }
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin

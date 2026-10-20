@@ -20,6 +20,12 @@ Windows 优先的极速应用启动器。当前版本聚焦一件事：**把应�
 
 安装包未做代码签名，SmartScreen 提示“未知发布者”时选择“更多信息 → 仍要运行”。
 
+### 自动更新
+
+安装版会在启动约 20 秒后检查最新 Release，此后每 6 小时检查一次；也可以从「设置 → 关于」或托盘菜单手动检查。发现新版本后可一键下载并静默安装，安装完成后 cTools 会自动重新打开。便携版不执行自更新，只提供发布页下载入口。
+
+更新包下载后会按 GitHub 提供的 SHA-256 摘要校验，校验失败会放弃安装。
+
 本地打包需要 Inno Setup 6，可执行：
 
 ```powershell
@@ -56,6 +62,7 @@ dotnet run --project src\cTools.App -- --settings --tab 2
 | `--query <text>` | 启动后填入搜索词 |
 | `--settings` | 启动后打开设置 |
 | `--tab <0-5>` | 设置页初始标签：常规 / 外观与布局 / 搜索范围 / 自定义启动 / 快捷键与行为 / 关于 |
+| `--updated` | 由安装包在自动更新完成后传入，普通启动可忽略 |
 
 ---
 
@@ -270,12 +277,13 @@ dotnet run --project tools\ui-preview -- artifacts\ui
 - UWP 图标已通过 `shell:AppsFolder` + `IShellItemImageFactory` 提取；极少数包可能仍回退通用图标。
 - 全屏检测是「通知状态 + 前台窗口覆盖显示器」的启发式；少数组件覆盖层可能误判。
 - 固定显示器被拔掉时会回退到鼠标所在屏幕，不记忆“上次位置”。
-- 没有自动更新；安装包由 GitHub Actions 在每次 `master` 更新时构建并发布。
+- 自动更新只对安装版生效；便携版需要手动下载新的压缩包。
+- 安装包和更新包都没有代码签名，首次运行可能触发 SmartScreen 提示。
 - 没有插件系统（按当前阶段聚焦启动器）。
 
 下一步优先级：
 
-1. 自动更新（检查 Releases 新版本 + 静默升级）。
+1. 代码签名与增量更新（减少下载体积）。
 2. 扫描范围「每来源明细」：展开显示每个来源扫到多少项、哪些被排除。
 3. 索引增量监听（开始菜单 / 桌面 / 自定义路径变化后 500ms 内更新）。
 4. 文件 / 文件夹搜索（可选，使用 NTFS USN Journal 或 Everything SDK，而不是全盘遍历）。
@@ -286,6 +294,8 @@ dotnet run --project tools\ui-preview -- artifacts\ui
 
 ## 许可证
 
-待定。当前代码为 cTools 新项目，未复制 ZTools 源码；uTools / PowerToys / ZeroLaunch-rs 仅作为产品与交互参考。
+本项目以 [WTFPL](LICENSE)（Do What The Fuck You Want To Public License, Version 2）开源：你可以随意复制、修改、分发，甚至改名后据为己有。
+
+uTools / PowerToys / ZeroLaunch-rs 仅作为产品与交互参考，项目未复制其源码。
 拼音数据由 [pinyin-pro](https://github.com/zh-lx/pinyin-pro)（MIT）生成，见 `tools/pinyin-gen/`。
 
