@@ -23,6 +23,7 @@ public enum EntrySource
     AppPaths,
     StartMenu,
     Desktop,
+    AppsFolder,
     Uwp,
     SystemSetting
 }

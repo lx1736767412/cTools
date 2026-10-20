@@ -57,6 +57,9 @@ public static class IconService
         [In] ref Guid interfaceId,
         [MarshalAs(UnmanagedType.Interface)] out object shellItem);
 
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(string file, int iconIndex, IntPtr[]? largeIcons, IntPtr[]? smallIcons, uint iconCount);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyIcon(IntPtr hIcon);
 
@@ -65,28 +68,87 @@ public static class IconService
 
     private static readonly ConcurrentDictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public static ImageSource? GetIcon(string? path)
+    /// <summary>
+    /// 优先使用 Windows Shell 的图标（<see cref="IShellItemImageFactory"/>），
+    /// 失败时退回 <c>SHGetFileInfo</c>，最后直接读取 exe 的图标资源。
+    /// </summary>
+    public static ImageSource? GetIcon(string? path, string? fallbackPath = null)
     {
-        if (string.IsNullOrWhiteSpace(path)) return null;
-        if (path.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase)) return null;
+        if (string.IsNullOrWhiteSpace(path) && string.IsNullOrWhiteSpace(fallbackPath)) return null;
+        if (path is not null && path.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase)) return null;
 
-        var isUwp = path.Contains('!') && !path.Contains('\\') && !path.Contains('/');
-        var cacheKey = isUwp ? "uwp:" + path : path;
+        var isUwp = path is not null && path.Contains('!') && !path.Contains('\\') && !path.Contains('/');
+        var cacheKey = $"{(isUwp ? "uwp:" : "")}{path}|{fallbackPath}";
         if (Cache.TryGetValue(cacheKey, out var cached)) return cached;
 
-        ImageSource? result;
-        if (isUwp)
+        ImageSource? result = null;
+        if (!string.IsNullOrWhiteSpace(path))
         {
-            result = GetUwpIcon(path);
+            isUwp = isUwp || (!path.Contains('\\') && !path.Contains('/') && !Path.IsPathRooted(path));
+            if (isUwp)
+            {
+                result = GetShellImage(path, 64);
+            }
+            else if (Path.IsPathRooted(path) || File.Exists(path) || Directory.Exists(path))
+            {
+                result = GetShellImage(path, 64);
+                if (result is null && path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    result = GetExeIcon(path);
+                result ??= GetFileIcon(path);
+            }
         }
-        else
+
+        if (result is null && !string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath))
         {
-            if (!Path.IsPathRooted(path) && !File.Exists(path) && !Directory.Exists(path)) return null;
-            result = GetFileIcon(path);
+            result = GetShellImage(fallbackPath, 64)
+                     ?? (fallbackPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? GetExeIcon(fallbackPath) : null)
+                     ?? GetFileIcon(fallbackPath);
         }
 
         Cache[cacheKey] = result;
         return result;
+    }
+
+    private static ImageSource? GetShellImage(string path, int size)
+    {
+        object? item = null;
+        try
+        {
+            var parsingName = path.Contains('\\') || Path.IsPathRooted(path)
+                ? path
+                : "shell:AppsFolder\\" + path;
+            var interfaceId = typeof(IShellItemImageFactory).GUID;
+            SHCreateItemFromParsingName(parsingName, IntPtr.Zero, ref interfaceId, out item);
+            if (item is not IShellItemImageFactory factory) return null;
+
+            var result = factory.GetImage(
+                new NativeSize { Width = size, Height = size },
+                SIIGBF.BiggerSizeOk | SIIGBF.IconOnly,
+                out var bitmap);
+            if (result != 0 || bitmap == IntPtr.Zero) return null;
+            try
+            {
+                var source = Imaging.CreateBitmapSourceFromHBitmap(
+                    bitmap,
+                    IntPtr.Zero,
+                    Int32Rect.Empty,
+                    BitmapSizeOptions.FromEmptyOptions());
+                source.Freeze();
+                return source;
+            }
+            finally
+            {
+                DeleteObject(bitmap);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            if (item is not null && Marshal.IsComObject(item)) Marshal.ReleaseComObject(item);
+        }
     }
 
     private static ImageSource? GetFileIcon(string path)
@@ -116,28 +178,18 @@ public static class IconService
         }
     }
 
-    /// <summary>
-    /// UWP 应用没有可以直接 SHGetFileInfo 的路径，改从 shell:AppsFolder 的 Shell 项取图。
-    /// </summary>
-    private static ImageSource? GetUwpIcon(string appUserModelId)
+    /// <summary>绕过 Shell 图标缓存，直接读取 exe 内嵌图标。</summary>
+    private static ImageSource? GetExeIcon(string path)
     {
-        object? item = null;
+        var icons = new IntPtr[1];
         try
         {
-            var interfaceId = typeof(IShellItemImageFactory).GUID;
-            SHCreateItemFromParsingName("shell:AppsFolder\\" + appUserModelId, IntPtr.Zero, ref interfaceId, out item);
-            if (item is not IShellItemImageFactory factory) return null;
-
-            var result = factory.GetImage(
-                new NativeSize { Width = 64, Height = 64 },
-                SIIGBF.BiggerSizeOk,
-                out var bitmap);
-            if (result != 0 || bitmap == IntPtr.Zero) return null;
+            var count = ExtractIconEx(path, 0, icons, null, 1);
+            if (count == 0 || icons[0] == IntPtr.Zero) return null;
             try
             {
-                var source = Imaging.CreateBitmapSourceFromHBitmap(
-                    bitmap,
-                    IntPtr.Zero,
+                var source = Imaging.CreateBitmapSourceFromHIcon(
+                    icons[0],
                     Int32Rect.Empty,
                     BitmapSizeOptions.FromEmptyOptions());
                 source.Freeze();
@@ -145,16 +197,12 @@ public static class IconService
             }
             finally
             {
-                DeleteObject(bitmap);
+                DestroyIcon(icons[0]);
             }
         }
         catch
         {
             return null;
-        }
-        finally
-        {
-            if (item is not null && Marshal.IsComObject(item)) Marshal.ReleaseComObject(item);
         }
     }
 }

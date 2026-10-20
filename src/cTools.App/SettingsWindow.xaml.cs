@@ -32,8 +32,8 @@ public partial class SettingsWindow : Window
     private readonly AppSettings _settings;
     private readonly List<MonitorChoice> _monitorChoices = new();
     private readonly DispatcherTimer _saveFeedbackTimer;
-    private bool _previewed;
-    private bool _hasSaved;
+    private readonly DispatcherTimer _applyTimer;
+    private bool _loading;
 
     public SettingsWindow(MainViewModel viewModel, int initialTab = 0)
     {
@@ -47,28 +47,32 @@ public partial class SettingsWindow : Window
             _saveFeedbackTimer.Stop();
             SaveStatusText.Visibility = Visibility.Collapsed;
         };
+        _applyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
+        _applyTimer.Tick += (_, _) =>
+        {
+            _applyTimer.Stop();
+            ApplyNow();
+        };
+
+        // 所有控件改动都走同一套“防抖后立即生效”的流程，不再需要保存按钮。
+        AddHandler(System.Windows.Controls.Primitives.ToggleButton.CheckedEvent, new RoutedEventHandler(LiveControlChanged), true);
+        AddHandler(System.Windows.Controls.Primitives.ToggleButton.UncheckedEvent, new RoutedEventHandler(LiveControlChanged), true);
+        AddHandler(System.Windows.Controls.TextBox.TextChangedEvent, new TextChangedEventHandler(LiveControlChanged), true);
+        AddHandler(System.Windows.Controls.Primitives.Selector.SelectionChangedEvent, new SelectionChangedEventHandler(LiveControlChanged), true);
+
         SourceInitialized += (_, _) => ApplyWindowTheme();
         Loaded += (_, _) => LoadControls();
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Closed += (_, _) =>
         {
             _saveFeedbackTimer.Stop();
+            _applyTimer.Stop();
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-            // 预览重建只影响当前会话；关闭时恢复已保存设置对应的索引。
-            if (_previewed) _ = _viewModel.RebuildIndexAsync();
-        };
-        PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Save_Click(this, new RoutedEventArgs());
-                e.Handled = true;
-            }
         };
         KeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape) return;
-            Cancel_Click(this, new RoutedEventArgs());
+            Close();
             e.Handled = true;
         };
     }
@@ -82,10 +86,41 @@ public partial class SettingsWindow : Window
 
     private void ShowSavedFeedback()
     {
-        SaveStatusText.Text = "已保存";
+        SaveStatusText.Text = "已自动保存";
         SaveStatusText.Visibility = Visibility.Visible;
         _saveFeedbackTimer.Stop();
         _saveFeedbackTimer.Start();
+    }
+
+    private void LiveControlChanged(object sender, RoutedEventArgs e) => QueueApply();
+
+    private void QueueApply()
+    {
+        if (_loading) return;
+        _applyTimer.Stop();
+        _applyTimer.Start();
+    }
+
+    private void ApplyNow()
+    {
+        if (_loading) return;
+        if (!HotkeyService.TryParse(HotkeyBox.Text, out var modifiers, out var key))
+        {
+            HotkeyStatusText.Text = "快捷键格式无效，例如 Alt+Space。";
+            return;
+        }
+        if (modifiers == 0 && (key < 0x70 || key > 0x87))
+        {
+            HotkeyStatusText.Text = "全局快捷键至少需要一个修饰键（Ctrl / Alt / Shift / Win），或使用 F1–F24。";
+            return;
+        }
+
+        HotkeyStatusText.Text = "";
+        ApplyControlsToSettings();
+        AutoStart.SetEnabled(_settings.StartWithWindows);
+        _viewModel.ApplySettings(_settings);
+        ApplyWindowTheme();
+        ShowSavedFeedback();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -96,6 +131,9 @@ public partial class SettingsWindow : Window
 
     private void LoadControls()
     {
+        _loading = true;
+        try
+        {
         ThemeSystemRadio.IsChecked = _settings.Theme == AppTheme.System;
         ThemeLightRadio.IsChecked = _settings.Theme == AppTheme.Light;
         ThemeDarkRadio.IsChecked = _settings.Theme == AppTheme.Dark;
@@ -160,6 +198,11 @@ public partial class SettingsWindow : Window
         UpdateStatusText.Text = "当前版本 " + UpdateService.CurrentVersionText + "。";
 
         LoadMonitors();
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private void LoadMonitors()
@@ -180,44 +223,11 @@ public partial class SettingsWindow : Window
         MonitorCombo.SelectedIndex = index >= 0 ? index : 0;
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e)
+    private void Close_Click(object sender, RoutedEventArgs e)
     {
-        if (!HotkeyService.TryParse(HotkeyBox.Text, out var hotkeyModifiers, out var hotkeyKey))
-        {
-            HotkeyStatusText.Text = "快捷键格式无效，例如 Alt+Space。";
-            SettingsTabs.SelectedIndex = 4;
-            return;
-        }
-        // 单字母/数字全局热键会吞掉正常输入；允许 F1–F24 这类安全单键。
-        if (hotkeyModifiers == 0 && (hotkeyKey < 0x70 || hotkeyKey > 0x87))
-        {
-            HotkeyStatusText.Text = "全局快捷键至少需要一个修饰键（Ctrl / Alt / Shift / Win），或使用 F1–F24。";
-            SettingsTabs.SelectedIndex = 4;
-            return;
-        }
-
-        if (!int.TryParse(MaxResultsBox.Text.Trim(), out var maxResults)) maxResults = 50;
-        if (!int.TryParse(MaxDepthBox.Text.Trim(), out var maxDepth)) maxDepth = 6;
-
-        var extensions = BuildExtensions();
-        if (extensions.Count == 0)
-        {
-            MessageBox.Show(this, "至少保留一种扫描文件类型，否则索引会为空。", "cTools",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            SettingsTabs.SelectedIndex = 2;
-            return;
-        }
-
-        ApplyControlsToSettings(maxResults, maxDepth, extensions);
-        AutoStart.SetEnabled(_settings.StartWithWindows);
-        _viewModel.ApplySettings(_settings);
-        // 保存后保持设置页打开，方便继续调整；关闭由“关闭”按钮或标题栏完成。
-        _previewed = false;
-        _hasSaved = true;
-        CancelButton.Content = "关闭";
-        HotkeyStatusText.Text = "";
-        ApplyWindowTheme();
-        ShowSavedFeedback();
+        _applyTimer.Stop();
+        ApplyNow();
+        Close();
     }
 
     /// <summary>把当前表单写回临时设置，供保存和“按当前表单重建索引”共用。</summary>
@@ -297,12 +307,6 @@ public partial class SettingsWindow : Window
         return extensions.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private void Cancel_Click(object sender, RoutedEventArgs e)
-    {
-        if (!_hasSaved) DialogResult = false;
-        Close();
-    }
-
     private void ResetHotkey_Click(object sender, RoutedEventArgs e)
     {
         HotkeyBox.Text = "Alt+Space";
@@ -366,6 +370,7 @@ public partial class SettingsWindow : Window
         CustomPathsList.ItemsSource = null;
         CustomPathsList.ItemsSource = _settings.CustomPaths;
         UpdatePathsCount();
+        QueueApply();
     }
 
     private void UpdatePathsCount()
@@ -471,18 +476,19 @@ public partial class SettingsWindow : Window
     {
         CustomEntriesList.ItemsSource = null;
         CustomEntriesList.ItemsSource = _settings.CustomEntries;
+        QueueApply();
     }
 
     private async void Rebuild_Click(object sender, RoutedEventArgs e)
     {
         RebuildButton.IsEnabled = false;
-        ScanStatusText.Text = "正在按当前表单重建索引…";
+        ScanStatusText.Text = "正在按当前设置重建索引…";
         try
         {
-            ApplyControlsToSettings();
-            _previewed = true;
-            await _viewModel.RebuildIndexAsync(_settings.Clone(), persistCache: false);
-            ScanStatusText.Text = _viewModel.Status + " · 尚未保存设置";
+            _applyTimer.Stop();
+            ApplyNow();
+            await _viewModel.RebuildIndexAsync(_settings.Clone());
+            ScanStatusText.Text = _viewModel.Status;
             ScanSummaryText.Text = _viewModel.ScanSummary;
         }
         finally

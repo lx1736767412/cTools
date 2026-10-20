@@ -153,7 +153,8 @@ public partial class App : System.Windows.Application
             _tray = null;
         }
         _mainWindow?.ApplySettingsToWindow();
-        ReloadHotkey(useFallback: true);
+        if (!string.Equals(_hotkey?.Hotkey, _viewModel.Settings.Hotkey, StringComparison.OrdinalIgnoreCase))
+            ReloadHotkey(useFallback: true);
         RestartUpdateScheduler();
     }
 

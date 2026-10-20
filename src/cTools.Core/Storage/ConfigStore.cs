@@ -61,6 +61,7 @@ public static class ConfigStore
             settings.CustomEntries ??= new List<CustomEntry>();
             settings.ScanExtensions ??= new List<string>();
             settings.ExcludePatterns ??= new List<string>();
+            if (settings.Version < 2) MigrateToVersion2(settings);
             return settings;
         }
         catch (Exception ex)
@@ -90,5 +91,22 @@ public static class ConfigStore
         {
             Log.Error("保存设置失败", ex);
         }
+    }
+
+    private static void MigrateToVersion2(AppSettings settings)
+    {
+        // v1 默认会收录 .url / ClickOnce / 批处理 / PowerShell / msi；这些来源噪音大，v2 起默认关闭。
+        var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".url", ".appref-ms", ".bat", ".cmd", ".ps1", ".msi"
+        };
+        settings.ScanExtensions = (settings.ScanExtensions ?? new List<string>())
+            .Where(extension => !removed.Contains(EntryKindDetector.NormalizeExtension(extension)))
+            .ToList();
+        if (settings.ScanExtensions.Count == 0)
+            settings.ScanExtensions = new List<string> { ".exe", ".lnk" };
+        settings.Version = 2;
+        Log.Info("设置已迁移到 v2：默认只扫描 .exe / .lnk");
+        Save(settings);
     }
 }

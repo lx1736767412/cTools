@@ -17,7 +17,7 @@
         DragOver="Window_DragOver">
   <Window.Resources>
     <ItemsPanelTemplate x:Key="GridItemsPanel">
-      <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" />
+      <WrapPanel Orientation="Horizontal" HorizontalAlignment="Left" />
     </ItemsPanelTemplate>
 
     <Style x:Key="GridItemStyle" TargetType="ListBoxItem">
@@ -58,7 +58,7 @@
                  HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
         <Grid Width="76" Height="28" Margin="0,4,0,0" HorizontalAlignment="Center">
-          <TextBlock Text="{Binding Name}" FontSize="11.5" VerticalAlignment="Center"
+          <TextBlock Text="{Binding Name}" FontSize="11.5" VerticalAlignment="Top"
                      HorizontalAlignment="Stretch" TextAlignment="Center"
                      TextWrapping="Wrap" MaxHeight="28" TextTrimming="CharacterEllipsis"
                      LineHeight="14" LineStackingStrategy="BlockLineHeight" />
@@ -115,22 +115,6 @@
           <TextBlock Text="&#xE72E;" FontFamily="{StaticResource IconFont}" FontSize="10"
                      Foreground="{DynamicResource SubTextBrush}" Margin="0,0,5,0" VerticalAlignment="Center"
                      ToolTip="管理员运行" Visibility="{Binding Selected.Entry.RunAsAdmin, Converter={StaticResource BoolToVis}}" />
-          <Border x:Name="StatusPill" MaxWidth="190" ToolTip="{Binding Status}">
-            <Border.Style>
-              <Style TargetType="Border" BasedOn="{StaticResource StatusPill}">
-                <Style.Triggers>
-                  <DataTrigger Binding="{Binding Status}" Value="">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding Status}" Value="{x:Null}">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                  </DataTrigger>
-                </Style.Triggers>
-              </Style>
-            </Border.Style>
-            <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource SubTextBrush}"
-                       TextTrimming="CharacterEllipsis" />
-          </Border>
         </StackPanel>
 
         <Button Grid.Column="3" x:Name="SettingsButton" Style="{StaticResource IconButton}"
@@ -229,8 +213,8 @@
             <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="24"
                        Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock Text="没有找到匹配项" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,0" />
-          <TextBlock Text="换个关键词，或把文件 / 文件夹直接拖进来添加" FontSize="11.5"
+          <TextBlock x:Name="EmptyTitleText" Text="没有找到匹配项" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,0" />
+          <TextBlock x:Name="EmptyHintText" Text="换个关键词，或把文件 / 文件夹直接拖进来添加" FontSize="11.5"
                      Foreground="{DynamicResource SubTextBrush}" Margin="0,6,0,0" HorizontalAlignment="Center" />
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
             <Button Content="添加文件…" Click="AddFileClick" Margin="0,0,8,0" />

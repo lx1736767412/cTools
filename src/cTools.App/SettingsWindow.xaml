@@ -221,7 +221,7 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,0,4,0" ClipToBounds="True">
           <StackPanel>
             <TextBlock Text="搜索范围" FontSize="24" FontWeight="SemiBold" />
-            <TextBlock Text="控制哪些来源进入索引。默认参考 uTools：开始菜单、桌面、App Paths 与 UWP。" FontSize="12"
+            <TextBlock Text="控制哪些来源进入索引。默认读取 Windows 的已安装应用列表（shell:AppsFolder），再用开始菜单、桌面与 App Paths 补漏。" FontSize="12"
                        Foreground="{DynamicResource SubTextBrush}" Margin="0,5,0,18" />
 
             <Border Style="{StaticResource Card}">
@@ -244,7 +244,6 @@
                   <CheckBox Grid.Row="1" Grid.Column="0" x:Name="AppPathsBox" Content="注册表 App Paths" />
                   <CheckBox Grid.Row="1" Grid.Column="1" x:Name="UwpBox" Content="UWP / Microsoft Store 应用" />
                   <CheckBox Grid.Row="2" Grid.Column="0" x:Name="CustomEntriesBox" Content="自定义启动项" />
-                  <CheckBox Grid.Row="2" Grid.Column="1" x:Name="CustomPathsBox" Content="自定义扫描路径" />
                   <CheckBox Grid.Row="3" Grid.Column="0" x:Name="SystemSettingsBox" Content="Windows 设置页面（可选）" />
                 </Grid>
                 <CheckBox x:Name="IncludeSubfoldersBox" Content="递归扫描开始菜单 / 桌面的子目录" Margin="0,10,0,4" />
@@ -259,7 +258,7 @@
             <Border Style="{StaticResource Card}">
               <StackPanel>
                 <TextBlock Text="扫描的文件类型" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="开始菜单 / 桌面只收录快捷方式；自定义扫描路径的目录会按这里的扩展名收录文件，单独添加的文件不受限制。" Style="{StaticResource SectionHint}" />
+                <TextBlock Text="默认只扫描 .exe 与 .lnk；其余类型请按需打开。开始菜单 / 桌面始终只收录快捷方式。" Style="{StaticResource SectionHint}" />
                 <WrapPanel>
                   <CheckBox x:Name="ScanExeBox" Content="应用 .exe" Margin="0,5,20,5" />
                   <CheckBox x:Name="ScanLnkBox" Content="快捷方式 .lnk" Margin="0,5,20,5" />
@@ -271,46 +270,6 @@
                 </WrapPanel>
                 <TextBlock Text="其他扩展名（逗号分隔，例如 .ahk, .py, .jar）" Style="{StaticResource FieldLabel}" Margin="0,12,0,5" />
                 <TextBox x:Name="ExtraExtensionsBox" />              </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource Card}">
-              <StackPanel>
-                <TextBlock Text="自定义扫描路径" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="文件夹会递归收录；也可以添加单个文件。列表里的“递归”只对文件夹生效。" Style="{StaticResource SectionHint}" />
-                <ListView x:Name="CustomPathsList" Height="168" AllowDrop="True" DragOver="CustomList_DragOver" Drop="CustomPathsList_Drop"
-                          Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                          BorderThickness="1" Padding="4">
-                  <ListView.View>
-                    <GridView>
-                      <GridViewColumn Header="启用" Width="58">
-                        <GridViewColumn.CellTemplate>
-                          <DataTemplate>
-                            <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay}" Content="" Margin="0" />
-                          </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                      </GridViewColumn>
-                      <GridViewColumn Header="类型" Width="64" DisplayMemberBinding="{Binding KindLabel}" />
-                      <GridViewColumn Header="路径" Width="380" DisplayMemberBinding="{Binding Path}" />
-                      <GridViewColumn Header="递归" Width="58">
-                        <GridViewColumn.CellTemplate>
-                          <DataTemplate>
-                            <CheckBox IsChecked="{Binding Recursive, Mode=TwoWay}" Content="" Margin="0" />
-                          </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                      </GridViewColumn>
-                    </GridView>
-                  </ListView.View>
-                </ListView>
-                <Grid Margin="0,10,0,0">
-                  <TextBlock x:Name="CustomPathsCountText" FontSize="11" Foreground="{DynamicResource SubTextBrush}"
-                             VerticalAlignment="Center" />
-                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="添加文件夹" Click="AddFolder_Click" Margin="0,0,8,0" />
-                    <Button Content="添加文件" Click="AddScanFile_Click" Margin="0,0,8,0" />
-                    <Button Content="移除选中" Click="RemovePath_Click" />
-                  </StackPanel>
-                </Grid>
-              </StackPanel>
             </Border>
 
             <Border Style="{StaticResource Card}">
@@ -353,6 +312,7 @@
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
@@ -363,13 +323,58 @@
                        Foreground="{DynamicResource SubTextBrush}" Margin="0,5,0,16" />
           </StackPanel>
 
-          <Border Grid.Row="1" Style="{StaticResource Card}" Background="{DynamicResource AccentSoftBrush}"
-                  BorderBrush="Transparent" Padding="14,10" Margin="0,0,0,10">
-            <TextBlock Text="提示：也可以把文件 / 文件夹直接拖进这个列表。" FontSize="11.5"
-                       Foreground="{DynamicResource SubTextBrush}" />
+          <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,10">
+            <StackPanel>
+              <CheckBox x:Name="CustomPathsBox" Content="启用自定义扫描路径" Margin="0,0,0,2" />
+              <TextBlock Text="文件夹会递归收录；也可以添加单个文件。列表里的“递归”只对文件夹生效。"
+                         Style="{StaticResource SectionHint}" Margin="0,4,0,10" />
+              <Grid>
+                <TextBlock x:Name="CustomPathsCountText" FontSize="11" Foreground="{DynamicResource SubTextBrush}"
+                           VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                  <Button Content="添加文件夹" Click="AddFolder_Click" Margin="0,0,8,0" />
+                  <Button Content="添加文件" Click="AddScanFile_Click" Margin="0,0,8,0" />
+                  <Button Content="移除选中" Click="RemovePath_Click" />
+                </StackPanel>
+              </Grid>
+              <ListView x:Name="CustomPathsList" Height="118" Margin="0,10,0,0"
+                        AllowDrop="True" DragOver="CustomList_DragOver" Drop="CustomPathsList_Drop"
+                        Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1" Padding="4">
+                <ListView.View>
+                  <GridView>
+                    <GridViewColumn Header="启用" Width="58">
+                      <GridViewColumn.CellTemplate>
+                        <DataTemplate>
+                          <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay}" Content="" Margin="0" />
+                        </DataTemplate>
+                      </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="类型" Width="64" DisplayMemberBinding="{Binding KindLabel}" />
+                    <GridViewColumn Header="路径" Width="380" DisplayMemberBinding="{Binding Path}" />
+                    <GridViewColumn Header="递归" Width="58">
+                      <GridViewColumn.CellTemplate>
+                        <DataTemplate>
+                          <CheckBox IsChecked="{Binding Recursive, Mode=TwoWay}" Content="" Margin="0" />
+                        </DataTemplate>
+                      </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                  </GridView>
+                </ListView.View>
+              </ListView>
+            </StackPanel>
           </Border>
 
-          <ListView Grid.Row="2" x:Name="CustomEntriesList" Background="{DynamicResource SurfaceAltBrush}"
+          <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+            <Button Content="添加文件" Click="AddFile_Click" Margin="0,0,8,8" />
+            <Button Content="添加文件夹" Click="AddFolderEntry_Click" Margin="0,0,8,8" />
+            <Button Content="添加网址" Click="AddUrl_Click" Margin="0,0,8,8" />
+            <Button Content="添加命令" Click="AddCommand_Click" Margin="0,0,8,8" />
+            <Button Content="编辑" Click="EditEntry_Click" Margin="0,0,8,8" />
+            <Button Content="删除" Click="DeleteEntry_Click" Margin="0,0,8,8" />
+          </WrapPanel>
+
+          <ListView Grid.Row="3" x:Name="CustomEntriesList" Background="{DynamicResource SurfaceAltBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="4"
                     AllowDrop="True" DragOver="CustomList_DragOver" Drop="CustomEntriesList_Drop"
                     MouseDoubleClick="EditEntry_MouseDoubleClick">
@@ -396,14 +401,8 @@
             </ListView.View>
           </ListView>
 
-          <WrapPanel Grid.Row="3" Margin="0,12,0,16">
-            <Button Content="添加文件" Click="AddFile_Click" Margin="0,0,8,8" />
-            <Button Content="添加文件夹" Click="AddFolderEntry_Click" Margin="0,0,8,8" />
-            <Button Content="添加网址" Click="AddUrl_Click" Margin="0,0,8,8" />
-            <Button Content="添加命令" Click="AddCommand_Click" Margin="0,0,8,8" />
-            <Button Content="编辑" Click="EditEntry_Click" Margin="0,0,8,8" />
-            <Button Content="删除" Click="DeleteEntry_Click" Margin="0,0,8,8" />
-          </WrapPanel>
+          <TextBlock Grid.Row="4" Text="提示：可以把文件 / 文件夹直接拖进自定义启动列表。" FontSize="11.5"
+                     Foreground="{DynamicResource SubTextBrush}" Margin="0,8,0,0" />
         </Grid>
       </TabItem>
 
@@ -534,15 +533,14 @@
             BorderThickness="0,1,0,0" Padding="26,14">
       <Grid>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Text="设置保存在 %APPDATA%\cTools\settings.json"
+          <TextBlock Text="所有修改会自动保存到 %APPDATA%\cTools\settings.json"
                      FontSize="10.5" Foreground="{DynamicResource SubTextBrush}" VerticalAlignment="Center" />
-          <TextBlock x:Name="SaveStatusText" Text="已保存" FontSize="10.5" FontWeight="SemiBold"
+          <TextBlock x:Name="SaveStatusText" Text="已自动保存" FontSize="10.5" FontWeight="SemiBold"
                      Foreground="{DynamicResource AccentBrush}" Margin="12,0,0,0"
                      VerticalAlignment="Center" Visibility="Collapsed" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-          <Button x:Name="CancelButton" Content="取消" Click="Cancel_Click" Margin="0,0,10,0" />
-          <Button Content="保存" Click="Save_Click" Style="{StaticResource AccentButton}" />
+          <Button x:Name="CloseButton" Content="关闭" Click="Close_Click" Style="{StaticResource AccentButton}" />
         </StackPanel>
       </Grid>
     </Border>

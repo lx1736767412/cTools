@@ -466,6 +466,14 @@ public partial class MainWindow : Window
         var empty = _viewModel.Results.Count == 0;
         EmptyPanel.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         ResultsList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+        if (empty)
+        {
+            var home = string.IsNullOrEmpty(_viewModel.Query);
+            EmptyTitleText.Text = home ? "还没有常用应用" : "没有找到匹配项";
+            EmptyHintText.Text = home
+                ? "输入名称开始搜索，打开过的应用会显示在这里"
+                : "换个关键词，或把文件 / 文件夹直接拖进来添加";
+        }
     }
 
     private void ApplyCompactState()

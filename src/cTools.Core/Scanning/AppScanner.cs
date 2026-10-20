@@ -13,7 +13,7 @@ public sealed class AppScanner
 
     private static readonly HashSet<string> DefaultExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".lnk", ".url", ".appref-ms", ".exe", ".bat", ".cmd", ".ps1", ".msi"
+        ".lnk", ".exe"
     };
 
     private static readonly HashSet<string> SkipFolders = new(StringComparer.OrdinalIgnoreCase)
@@ -112,25 +112,15 @@ public sealed class AppScanner
                 }
             }
 
-            if (settings.Search.AppPaths)
+            // 先读 Windows 自己维护的“所有应用”列表：名称、图标和打包应用都更准确，
+            // 后面的开始菜单 / App Paths 只用来补充它没有覆盖到的项。
+            if (settings.Search.StartMenu || settings.Search.Uwp)
             {
-                progress?.Report("App Paths");
-                foreach (var (name, path) in SystemPaths.AppPathsEntries())
+                progress?.Report("已安装应用");
+                foreach (var entry in AppsFolderScanner.Scan())
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var display = GetDisplayName(path, Path.GetFileNameWithoutExtension(name));
-                    if (IsExcludedName(display, settings) || IsExcludedFile(path, settings)) continue;
-                    Add(new AppEntry
-                    {
-                        Name = display,
-                        Target = path,
-                        ResolvedTarget = path,
-                        IconPath = path,
-                        Kind = EntryKind.App,
-                        Source = EntrySource.AppPaths,
-                        Keywords = new List<string> { Path.GetFileNameWithoutExtension(name) },
-                        Description = path
-                    });
+                    var allowed = entry.Kind == EntryKind.Uwp ? settings.Search.Uwp : settings.Search.StartMenu;
+                    if (allowed) Add(entry);
                 }
             }
 
@@ -148,11 +138,28 @@ public sealed class AppScanner
                     ScanShortcutDirectory(root, EntrySource.Desktop, settings, extensions, Add, cancellationToken, recursive: settings.Search.IncludeSubfolders);
             }
 
-            if (settings.Search.Uwp)
+            if (settings.Search.AppPaths)
             {
-                progress?.Report("UWP 应用");
-                foreach (var entry in UwpScanner.Scan())
+                progress?.Report("App Paths");
+                foreach (var (name, path) in SystemPaths.AppPathsEntries())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var display = GetDisplayName(path, Path.GetFileNameWithoutExtension(name));
+                    if (IsExcludedName(display, settings) || IsExcludedFile(path, settings)) continue;
+                    var entry = new AppEntry
+                    {
+                        Name = display,
+                        Target = path,
+                        ResolvedTarget = path,
+                        IconPath = path,
+                        Kind = EntryKind.App,
+                        Source = EntrySource.AppPaths,
+                        Keywords = new List<string> { Path.GetFileNameWithoutExtension(name) },
+                        Description = path
+                    };
+                    if (IsRedundantAppPath(entry, results)) continue;
                     Add(entry);
+                }
             }
 
             if (settings.Search.SystemSettings)
@@ -398,10 +405,87 @@ public sealed class AppScanner
         return fallback;
     }
 
+    /// <summary>
+    /// App Paths 里常出现和开始菜单 / 桌面同名的注册项（例如 DingTalk / 钉钉）。
+    /// 目标可执行文件相同或位于同一安装目录，且名称能对上时，认为它是重复项。
+    /// </summary>
+    private static bool IsRedundantAppPath(AppEntry candidate, List<AppEntry> existing)
+    {
+        var candidateName = TextNormalizer.Normalize(candidate.Name);
+        if (candidateName.Length < 3) return false;
+
+        foreach (var entry in existing)
+        {
+            if (entry.Source == EntrySource.AppPaths) continue;
+            if (!TargetsRelated(candidate, entry)) continue;
+            if (NameMatches(candidateName, entry)) return true;
+        }
+        return false;
+    }
+
+    private static bool TargetsRelated(AppEntry left, AppEntry right)
+    {
+        var leftPath = RealPath(left);
+        var rightPath = RealPath(right);
+        if (leftPath is null || rightPath is null) return false;
+        if (string.Equals(leftPath, rightPath, StringComparison.OrdinalIgnoreCase)) return true;
+
+        var leftDirectory = Path.GetDirectoryName(leftPath);
+        var rightDirectory = Path.GetDirectoryName(rightPath);
+        if (leftDirectory is null || rightDirectory is null) return false;
+        return IsUnder(leftPath, rightDirectory) || IsUnder(rightPath, leftDirectory);
+    }
+
+    private static string? RealPath(AppEntry entry)
+    {
+        var target = string.IsNullOrWhiteSpace(entry.ResolvedTarget) ? entry.Target : entry.ResolvedTarget;
+        if (string.IsNullOrWhiteSpace(target)) return null;
+        // AUMID 不是文件路径。
+        if (!target.Contains('\\') && !target.Contains('/')) return null;
+        try
+        {
+            return Path.IsPathRooted(target) ? Path.GetFullPath(target) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsUnder(string path, string directory)
+    {
+        var normalized = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return path.Length > normalized.Length
+               && path.StartsWith(normalized + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool NameMatches(string candidateName, AppEntry entry)
+    {
+        foreach (var alias in Aliases(entry))
+        {
+            if (alias.Length < 3) continue;
+            if (string.Equals(alias, candidateName, StringComparison.Ordinal)) return true;
+            // 允许 DingTalk -> DingtalkLauncher 这种前缀关系，但要求足够长，避免误配。
+            if (candidateName.Length >= 4 && alias.StartsWith(candidateName, StringComparison.Ordinal)) return true;
+            if (alias.Length >= 4 && candidateName.StartsWith(alias, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static IEnumerable<string> Aliases(AppEntry entry)
+    {
+        yield return TextNormalizer.Normalize(entry.Name);
+        foreach (var keyword in entry.Keywords ?? new List<string>())
+            yield return TextNormalizer.Normalize(keyword);
+    }
+
     private static string BuildTargetKey(AppEntry entry)
     {
         var target = string.IsNullOrWhiteSpace(entry.ResolvedTarget) ? entry.Target : entry.ResolvedTarget;
-        if (entry.Kind == EntryKind.Uwp && !string.IsNullOrWhiteSpace(entry.AppUserModelId))
+        // 只有拿不到真实路径的打包应用才用 AUMID 做身份；能拿到 exe 时仍按 exe 去重。
+        if (entry.Kind == EntryKind.Uwp
+            && !string.IsNullOrWhiteSpace(entry.AppUserModelId)
+            && (string.IsNullOrWhiteSpace(target) || (!target.Contains('\\') && !target.Contains('/'))))
             target = "uwp:" + entry.AppUserModelId;
         var arguments = (entry.Arguments ?? "").Trim();
         return $"{(target ?? "").Trim()}|{arguments}".ToLowerInvariant();

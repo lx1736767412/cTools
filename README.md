@@ -96,10 +96,9 @@ dotnet run --project src\cTools.App -- --settings --tab 2
 
 默认开启：
 
-- 开始菜单（用户 + 公共，可递归）
-- 桌面快捷方式（用户 + 公共，可递归）
-- 注册表 `App Paths`（HKLM / HKCU，含 WOW6432Node）
-- UWP / Microsoft Store 应用
+- 已安装应用（`shell:AppsFolder`，同时覆盖 Win32、带 AUMID 的应用和 UWP / MSIX）
+- 开始菜单 / 桌面快捷方式（用于补充 AppsFolder 没有收录的项）
+- 注册表 `App Paths`（只补充没有重复的项）
 - 自定义启动项 / 自定义扫描路径
 
 默认关闭：
@@ -110,18 +109,19 @@ dotnet run --project src\cTools.App -- --settings --tab 2
 扫描范围控制：
 
 - **最大扫描深度**：开始菜单、桌面与自定义路径共用（1–12 层）。
-- **文件类型**：`.exe`、`.lnk`、`.url`、`.appref-ms`、`.bat/.cmd`、`.ps1`、`.msi`，也可以追加任意扩展名（例如 `.ahk`、`.py`、`.jar`）。
-- **自定义扫描路径**：可以添加整个文件夹，也可以只添加一个文件；每一条都可以单独启用 / 停用，文件夹还可以选择是否递归。
+- **文件类型**：默认只收录 `.exe` 与 `.lnk`；`.url`、ClickOnce `.appref-ms`、`.bat/.cmd`、`.ps1`、`.msi` 默认关闭，可在设置里重新打开，也可以追加任意扩展名（例如 `.ahk`、`.py`、`.jar`）。
+- **自定义扫描路径**：位于「设置 → 自定义启动」顶部，可以添加整个文件夹，也可以只添加一个文件；每一条都可以单独启用 / 停用，文件夹还可以选择是否递归。
 - **排除关键词**：每行一个，支持 `*` 通配；只影响系统来源，不影响用户显式添加的自定义启动项。
 - 单个显式添加的文件不受扩展名白名单限制，适合把 `.md`、`.docx`、`.psd` 等文档直接放进索引。
-- 「重建索引」会按**当前设置表单**做一次预览扫描，并显示各来源数量；保存后才写入索引缓存。
+- **去重**：同名、同目标的可执行文件只保留一条；App Paths 与开始菜单 / 桌面指向同一程序（例如 DingTalk / 钉钉、Doubao / 豆包）时会自动合并。
+- 「重建索引」会按当前设置重新扫描并显示各来源数量；所有设置修改都会立即生效并自动保存。
 
 过滤规则：
 
 - 系统来源跳过 `uninstall`、`卸载`、`readme`、`help`、`website`、`文档`、`manual`、`license`、`documentation` 等名称。
 - 系统快捷方式目录跳过 SDK/docs/samples/demos 等目录。
 - `.url` 中的 http/https 网页快捷方式不进入开始菜单索引；自定义扫描路径中的 `.url` 会解析为网址。
-- UWP 会过滤 Shell 基础设施包，避免大量系统项。
+- `shell:AppsFolder` 会跳过帮助文档、网页和 Shell 基础设施包。
 
 ### 自定义启动
 
@@ -158,7 +158,7 @@ dotnet run --project src\cTools.App -- --settings --tab 2
 - 统一圆角、细边框、留白、分段选择器、开关式复选、Kbd 提示胶囊。
 - 主面板采用搜索头 + 结果区 + 快捷键提示底栏；列表与网格共享同一套选中态。
 - 深色主题下修正了旧版 ComboBox / 表头写死浅色的问题；列表、表头、滚动条都有对应的深色表现。
-- 所有设置保存后即时生效，设置页保持打开，方便继续调整。
+- 所有设置修改即时生效并自动保存，设置页保持打开，方便继续调整。
 
 仍然刻意保持克制：没有复杂的页面转场、没有为了动效牺牲首帧速度；窗口材质依赖系统 DWM，在部分远程桌面 / 精简系统上会退化为普通背景。
 
@@ -218,7 +218,7 @@ cTools/
 │  ├─ cTools.Core/           平台核心（可替换为 Rust）
 │  │  ├─ Models/             AppEntry / AppSettings / EntryKindDetector
 │  │  ├─ Index/              归一化 / 拼音 / 搜索评分
-│  │  ├─ Scanning/           开始菜单 / 桌面 / App Paths / UWP / 自定义路径
+│  │  ├─ Scanning/           AppsFolder / 开始菜单 / 桌面 / App Paths / 自定义路径
 │  │  ├─ Launching/          ShellExecuteEx / UWP / 管理员
 │  │  ├─ Storage/            设置与索引缓存
 │  │  └─ Data/pinyin.json    20775 个常用汉字的全拼/首字母

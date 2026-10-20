@@ -43,7 +43,7 @@ public enum ResultLayout
 
 public sealed class AppSettings
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public string Hotkey { get; set; } = "Alt+Space";
     public ThemeMode Theme { get; set; } = ThemeMode.System;
     public bool CompactMode { get; set; }
@@ -77,7 +77,7 @@ public sealed class AppSettings
     /// <summary>自定义扫描路径会收录的文件类型（含点号）。</summary>
     public List<string> ScanExtensions { get; set; } = new()
     {
-        ".exe", ".lnk", ".url", ".appref-ms", ".bat", ".cmd", ".ps1", ".msi"
+        ".exe", ".lnk"
     };
 
     public List<string> ExcludePatterns { get; set; } = new()

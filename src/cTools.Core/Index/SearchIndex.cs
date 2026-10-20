@@ -115,6 +115,8 @@ public sealed class SearchIndex
         var hits = new List<SearchHit>(Math.Min(limit, 64));
         foreach (var entry in _entries)
         {
+            // 空查询只展示“用过的”应用（以及手动固定的项），全新安装时保持空白。
+            if (entry.Entry.UseCount <= 0 && entry.Entry.LastUsedAt is null && !entry.Entry.Pinned) continue;
             var score = (int)(Math.Log2(entry.Entry.UseCount + 1) * 20) + entry.SourceWeight;
             if (entry.Entry.Pinned) score += 10000;
             if (entry.Entry.LastUsedAt is { } last)
@@ -194,6 +196,7 @@ public sealed class SearchIndex
         EntrySource.Manual => 60,
         EntrySource.CustomEntry => 50,
         EntrySource.CustomPath => 40,
+        EntrySource.AppsFolder => 28,
         EntrySource.AppPaths => 30,
         EntrySource.StartMenu => 20,
         EntrySource.Desktop => 15,

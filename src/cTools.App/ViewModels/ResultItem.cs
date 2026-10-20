@@ -50,7 +50,8 @@ public sealed class ResultItem : ObservableObject
     private async Task LoadIconAsync()
     {
         var path = Entry.IconPath ?? Entry.ResolvedTarget ?? Entry.Target;
-        var icon = await Task.Run(() => IconService.GetIcon(path));
+        var fallback = Entry.ResolvedTarget;
+        var icon = await Task.Run(() => IconService.GetIcon(path, fallback));
         if (icon is null) return;
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null) return;
