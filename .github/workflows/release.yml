@@ -1,0 +1,125 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-master
+  cancel-in-progress: false
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+
+jobs:
+  release:
+    name: Build installer and publish release
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Read version and build tag
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content -LiteralPath 'src/cTools.App/cTools.App.csproj'
+          $version = $project.Project.PropertyGroup |
+            ForEach-Object { $_.Version } |
+            Where-Object { $_ } |
+            Select-Object -First 1
+          if (-not $version) { $version = '0.1.0' }
+
+          "number=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version-build.${{ github.run_number }}" >> $env:GITHUB_OUTPUT
+          "short_sha=$('${{ github.sha }}'.Substring(0, 7))" >> $env:GITHUB_OUTPUT
+
+          Write-Host "cTools $version (build ${{ github.run_number }})"
+
+      - name: Publish self-contained app
+        shell: pwsh
+        run: |
+          dotnet publish src/cTools.App/cTools.App.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:Version=${{ steps.version.outputs.number }} `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o publish
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) {
+            throw "ISCC.exe not found at $iscc"
+          }
+
+          & $iscc `
+            /DMyAppVersion=${{ steps.version.outputs.number }} `
+            "/DPublishDir=${{ github.workspace }}\publish" `
+            "/DOutputDir=${{ github.workspace }}\dist" `
+            'installer\cTools.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive `
+            -Path publish\* `
+            -DestinationPath "dist\cTools-${{ steps.version.outputs.number }}-win-x64.zip" `
+            -CompressionLevel Optimal
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cTools-${{ steps.version.outputs.number }}-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: cTools ${{ steps.version.outputs.number }} (build ${{ github.run_number }})
+          body: |
+            cTools **${{ steps.version.outputs.number }}**，由 `master` 分支提交 `${{ steps.version.outputs.short_sha }}` 自动构建。
+
+            ### 安装
+
+            1. 下载 `cTools-${{ steps.version.outputs.number }}-setup.exe` 并运行。
+            2. 按向导安装到当前用户目录，无需管理员权限。
+            3. 安装完成后从开始菜单启动 cTools。
+
+            ### 便携版
+
+            下载 `cTools-${{ steps.version.outputs.number }}-win-x64.zip`，解压后直接运行 `cTools.exe`。
+
+            > 安装包未做代码签名，Windows SmartScreen 可能提示“未知发布者”，点击“更多信息 → 仍要运行”即可。
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: false
+          make_latest: true

@@ -1,6 +1,8 @@
 bin/
 obj/
 artifacts/
+dist/
+publish/
 .vs/
 .idea/
 *.user

@@ -8,7 +8,24 @@ Windows 优先的极速应用启动器。当前版本聚焦一件事：**把应�
 
 - [uTools](https://www.u-tools.cn/)：默认搜索范围、主面板交互、全局快捷键。
 - [PowerToys Command Palette](https://learn.microsoft.com/en-us/windows/powertoys/command-palette/overview)：紧凑模式、监控器位置、Esc 行为、搜索文本保留、全屏保护、固定项。
-- [ZeroLaunch-rs](https://github.com/ghost-him/ZeroLaunch-rs)：空格确认、Esc 先清空再隐藏等键盘优先的交互。
+
+---
+
+## 下载 / 安装
+
+每次 `master` 分支更新都会由 GitHub Actions 自动构建并发布到 [Releases](https://github.com/lx1736767412/cTools/releases)：
+
+- **安装版**：`cTools-<version>-setup.exe`，按当前用户安装（`%LOCALAPPDATA%\Programs\cTools`），不需要管理员权限。
+- **便携版**：`cTools-<version>-win-x64.zip`，解压后直接运行 `cTools.exe`。
+
+安装包未做代码签名，SmartScreen 提示“未知发布者”时选择“更多信息 → 仍要运行”。
+
+本地打包需要 Inno Setup 6，可执行：
+
+```powershell
+dotnet publish src\cTools.App -c Release -r win-x64 --self-contained true -o publish
+ISCC.exe /DMyAppVersion=0.1.0 /DPublishDir="$PWD\publish" /DOutputDir="$PWD\dist" installer\cTools.iss
+```
 
 ---
 
@@ -17,12 +34,12 @@ Windows 优先的极速应用启动器。当前版本聚焦一件事：**把应�
 环境：Windows 10/11 + .NET 9 SDK。
 
 ```powershell
-cd D:\bored\RTools
+cd D:\bored\cTools
 dotnet build cTools.sln -c Debug
 dotnet run --project src\cTools.App
 ```
 
-> 项目、程序集和解决方案已改名为 cTools；当前工作区目录仍为 `D:\bored\RTools`，可以自行把目录重命名为 `D:\bored\cTools`，命令中的路径随之调整。
+> 项目、程序集和解决方案名均为 cTools，仓库目录任意。
 
 带查询或设置页启动（开发 / 截图用）：
 
@@ -253,12 +270,12 @@ dotnet run --project tools\ui-preview -- artifacts\ui
 - UWP 图标已通过 `shell:AppsFolder` + `IShellItemImageFactory` 提取；极少数包可能仍回退通用图标。
 - 全屏检测是「通知状态 + 前台窗口覆盖显示器」的启发式；少数组件覆盖层可能误判。
 - 固定显示器被拔掉时会回退到鼠标所在屏幕，不记忆“上次位置”。
-- 没有安装包 / 自动更新；当前是开发构建。
+- 没有自动更新；安装包由 GitHub Actions 在每次 `master` 更新时构建并发布。
 - 没有插件系统（按当前阶段聚焦启动器）。
 
 下一步优先级：
 
-1. 打包（MSIX 或自解压安装器）+ 开机启动 + 自动更新。
+1. 自动更新（检查 Releases 新版本 + 静默升级）。
 2. 扫描范围「每来源明细」：展开显示每个来源扫到多少项、哪些被排除。
 3. 索引增量监听（开始菜单 / 桌面 / 自定义路径变化后 500ms 内更新）。
 4. 文件 / 文件夹搜索（可选，使用 NTFS USN Journal 或 Everything SDK，而不是全盘遍历）。

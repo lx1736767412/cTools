@@ -9,6 +9,12 @@
     <AssemblyName>cTools</AssemblyName>
     <RootNamespace>cTools.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\cTools.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <AssemblyTitle>cTools</AssemblyTitle>
+    <Product>cTools</Product>
+    <Company>cTools</Company>
+    <Description>Windows 快速应用启动器</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <LangVersion>latest</LangVersion>
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
