@@ -54,7 +54,8 @@
       <StackPanel Margin="2,5,2,3" VerticalAlignment="Top" ToolTip="{Binding GridToolTip}">
         <Grid Width="38" Height="38" HorizontalAlignment="Center">
           <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="19"
-                     Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                     Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                     Visibility="{Binding ShowGlyph, Converter={StaticResource BoolToVis}}" />
           <Image Source="{Binding Icon}" Stretch="Uniform" Width="36" Height="36"
                  HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
@@ -86,8 +87,9 @@
         <RowDefinition x:Name="FooterRow" Height="40" />
       </Grid.RowDefinitions>
 
-      <!-- 搜索头 -->
-      <Grid Grid.Row="0" Margin="18,0,14,0">
+      <!-- 搜索头：空白处与左侧图标可按住拖动窗口 -->
+      <Grid x:Name="SearchHeader" Grid.Row="0" Margin="18,0,14,0" Background="Transparent" Cursor="SizeAll"
+            MouseLeftButtonDown="SearchHeader_MouseLeftButtonDown">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
@@ -102,7 +104,7 @@
 
         <Grid Grid.Column="1" Margin="13,0,12,0">
           <TextBox x:Name="SearchBox" Style="{x:Null}" Background="Transparent" BorderThickness="0"
-                   Foreground="{DynamicResource TextBrush}" CaretBrush="{DynamicResource TextBrush}"
+                   Cursor="IBeam" Foreground="{DynamicResource TextBrush}" CaretBrush="{DynamicResource TextBrush}"
                    SelectionBrush="{DynamicResource AccentBrush}" FontSize="21" Padding="0"
                    VerticalContentAlignment="Center" SpellCheck.IsEnabled="False"
                    TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
@@ -178,7 +180,8 @@
                         BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" VerticalAlignment="Center">
                   <Grid>
                     <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="16"
-                               Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                               Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Visibility="{Binding ShowGlyph, Converter={StaticResource BoolToVis}}" />
                     <Image Source="{Binding Icon}" Stretch="Uniform" Width="24" Height="24"
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                   </Grid>
@@ -203,15 +206,15 @@
         </ListBox>
 
         <StackPanel x:Name="EmptyPanel" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
-          <Border Width="56" Height="56" CornerRadius="16" Background="{DynamicResource AccentSoftBrush}"
+          <Border Width="48" Height="48" CornerRadius="14" Background="{DynamicResource AccentSoftBrush}"
                   HorizontalAlignment="Center">
-            <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="24"
+            <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="21"
                        Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <TextBlock x:Name="EmptyTitleText" Text="没有找到匹配项" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,0" />
+          <TextBlock x:Name="EmptyTitleText" Text="没有找到匹配项" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,0" />
           <TextBlock x:Name="EmptyHintText" Text="换个关键词，或把文件 / 文件夹直接拖进来添加" FontSize="11.5"
-                     Foreground="{DynamicResource SubTextBrush}" Margin="0,6,0,0" HorizontalAlignment="Center" />
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
+                     Foreground="{DynamicResource SubTextBrush}" Margin="0,4,0,0" HorizontalAlignment="Center" />
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
             <Button Content="添加文件…" Click="AddFileClick" Margin="0,0,8,0" />
             <Button Content="打开设置" Click="OpenSettingsClick" />
           </StackPanel>

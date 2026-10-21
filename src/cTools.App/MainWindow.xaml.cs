@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     private const double PaletteWidth = 780;
     private const double PaletteHeight = 540;
     private const double CompactHeight = 72;
+    /// <summary>空状态内容上方与下方各留出的呼吸空间。</summary>
+    private const double EmptyStateVerticalPadding = 16;
 
     private readonly MainViewModel _viewModel;
     private readonly DispatcherTimer _searchTimer;
@@ -51,6 +53,8 @@ public partial class MainWindow : Window
     private bool _suppressHide;
     private bool _isExiting;
     private long _ignoreDeactivateUntil;
+    /// <summary>本次呼出期间用户手动拖动过窗口；高度变化时不再按设置重新定位。</summary>
+    private bool _userPositioned;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -93,6 +97,19 @@ public partial class MainWindow : Window
 
     public void ShowPalette()
     {
+        // 已经呼出时重复触发呼出（快捷键 / 托盘 / 二次启动）不应再次弹出：
+        // 保持现有内容与位置，不再重置前台窗口记录，也不再播放入场动画。
+        if (IsVisible)
+        {
+            if (IsActive) return;
+            // 窗口可见但没有焦点（例如关闭了“失焦隐藏”）时，只把焦点抢回来。
+            Topmost = true;
+            Activate();
+            ForceForeground();
+            SearchBox.Focus();
+            return;
+        }
+
         _previousForeground = GetForegroundWindow();
         RefreshSuggestions();
         _ignoreDeactivateUntil = Environment.TickCount64 + 700;
@@ -268,6 +285,7 @@ public partial class MainWindow : Window
 
     public void HidePalette(bool restoreFocus = true)    {
         Hide();
+        _userPositioned = false;
         if (!_viewModel.Settings.KeepSearchText)
         {
             SearchBox.Text = string.Empty;
@@ -372,6 +390,36 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
         }
+    }
+
+    /// <summary>按住搜索头空白处或搜索图标拖动窗口；输入框与按钮保留原有交互。</summary>
+    private void SearchHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || e.ButtonState != MouseButtonState.Pressed) return;
+        if (IsSearchHeaderInteractive(e.OriginalSource as DependencyObject)) return;
+
+        var left = Left;
+        var top = Top;
+        e.Handled = true;
+        try
+        {
+            DragMove();
+            if (Math.Abs(Left - left) > 0.5 || Math.Abs(Top - top) > 0.5) _userPositioned = true;
+        }
+        catch (InvalidOperationException)
+        {
+            // 鼠标已经松开（或窗口尚未显示）时 DragMove 会抛异常，忽略即可。
+        }
+    }
+
+    /// <summary>命中文本输入或按钮时不启动窗口拖动，避免影响选词、点击。</summary>
+    private static bool IsSearchHeaderInteractive(DependencyObject? source)
+    {
+        for (var node = source; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is System.Windows.Controls.TextBox or System.Windows.Controls.Button) return true;
+        }
+        return false;
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -661,7 +709,36 @@ public partial class MainWindow : Window
         var targetHeight = DesiredHeight();
         var heightChanged = Math.Abs(Height - targetHeight) > 0.5;
         if (heightChanged) Height = targetHeight;
-        if (IsVisible && heightChanged) PositionWindow();
+        if (IsVisible && heightChanged)
+        {
+            // 用户拖动过窗口后保持其位置，避免输入导致高度变化时跳回设置的位置。
+            if (_userPositioned) KeepUserPosition();
+            else PositionWindow();
+        }
+    }
+
+    /// <summary>保留用户拖动后的位置，仅在高度变化后把窗口收敛回当前所在显示器的工作区。</summary>
+    private void KeepUserPosition()
+    {
+        var center = new System.Windows.Point(Left + Width / 2, Top + Height / 2);
+        System.Windows.Rect? work = null;
+        try
+        {
+            foreach (var monitor in MonitorService.GetMonitors())
+            {
+                if (!monitor.Bounds.Contains(center)) continue;
+                work = monitor.WorkArea;
+                break;
+            }
+        }
+        catch
+        {
+            // 多显示器 API 失败时保持当前位置。
+        }
+        if (work is not System.Windows.Rect area) return;
+
+        Left = Math.Clamp(Left, area.Left, Math.Max(area.Left, area.Left + area.Width - Width));
+        Top = Math.Clamp(Top, area.Top, Math.Max(area.Top, area.Top + area.Height - Height));
     }
 
     /// <summary>按当前候选数量计算高度，最大不超过 PaletteHeight，没有候选时只保留搜索框。</summary>
@@ -669,7 +746,10 @@ public partial class MainWindow : Window
     {
         if (ShouldCollapseToSearchBox()) return CompactHeight;
 
-        var count = Math.Max(1, _viewModel.Results.Count);
+        // 无匹配项时按空状态面板的实际内容定高，避免标题 / 提示 / 按钮被底栏遮挡或裁切。
+        if (_viewModel.Results.Count == 0) return EmptyStateHeight();
+
+        var count = _viewModel.Results.Count;
         double contentHeight;
         if (IsGridLayout)
         {
@@ -684,6 +764,15 @@ public partial class MainWindow : Window
         }
 
         return Math.Clamp(72 + 40 + contentHeight, CompactHeight, PaletteHeight);
+    }
+
+    /// <summary>按空状态面板的自然高度计算窗口高度（含上下留白），最大不超过 PaletteHeight。</summary>
+    private double EmptyStateHeight()
+    {
+        var width = Math.Max(0, (Width > 0 ? Width : PaletteWidth) - 32);
+        EmptyPanel.Measure(new System.Windows.Size(width, double.PositiveInfinity));
+        var contentHeight = Math.Max(0, EmptyPanel.DesiredSize.Height);
+        return Math.Clamp(72 + 40 + contentHeight + EmptyStateVerticalPadding * 2, CompactHeight, PaletteHeight);
     }
 
     private void PositionWindow()

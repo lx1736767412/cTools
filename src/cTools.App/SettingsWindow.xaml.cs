@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using cTools.App.Services;
 using cTools.App.ViewModels;
@@ -12,6 +14,7 @@ using cTools.Core.Models;
 using cTools.Core.Scanning;
 using cTools.Core.Storage;
 using WinForms = System.Windows.Forms;
+using CheckBox = System.Windows.Controls.CheckBox;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using DragEventArgs = System.Windows.DragEventArgs;
 using AppTheme = cTools.Core.Models.ThemeMode;
@@ -42,6 +45,7 @@ public partial class SettingsWindow : Window
     private readonly DispatcherTimer _saveFeedbackTimer;
     private readonly DispatcherTimer _applyTimer;
     private bool _loading;
+    private int _saveFeedbackVersion;
 
     public SettingsWindow(MainViewModel viewModel, int initialTab = 0)
     {
@@ -49,11 +53,12 @@ public partial class SettingsWindow : Window
         _viewModel = viewModel;
         _settings = viewModel.Settings.Clone();
         SettingsTabs.SelectedIndex = Math.Clamp(initialTab, 0, 5);
+        SettingsTabs.SelectionChanged += SettingsTabs_SelectionChanged;
         _saveFeedbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
         _saveFeedbackTimer.Tick += (_, _) =>
         {
             _saveFeedbackTimer.Stop();
-            SaveStatusText.Visibility = Visibility.Collapsed;
+            HideSavedFeedback();
         };
         _applyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
         _applyTimer.Tick += (_, _) =>
@@ -73,7 +78,11 @@ public partial class SettingsWindow : Window
         CustomPathsList.PreviewMouseWheel += ForwardWheelToPage;
 
         SourceInitialized += (_, _) => ApplyWindowTheme();
-        Loaded += (_, _) => LoadControls();
+        Loaded += (_, _) =>
+        {
+            LoadControls();
+            PlayEntranceAnimation();
+        };
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         Closed += (_, _) =>
         {
@@ -96,15 +105,138 @@ public partial class SettingsWindow : Window
         WindowEffects.Apply(this, dark);
     }
 
+    private void SettingsTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 子列表的选中变化也会冒泡到这里，只处理标签页自身的切换。
+        if (!ReferenceEquals(e.OriginalSource, SettingsTabs)) return;
+        PlayTabTransition();
+    }
+
+    /// <summary>切换标签页时让右侧内容轻微淡入，避免整块内容瞬间替换。</summary>
+    private void PlayTabTransition()
+    {
+        if (!IsLoaded || !SystemParameters.ClientAreaAnimation) return;
+        if (SettingsTabs.Template?.FindName("TabContentHost", SettingsTabs) is not ContentPresenter host) return;
+        host.BeginAnimation(OpacityProperty, null);
+        host.Opacity = 0.35;
+        host.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0.35, 1, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            });
+    }
+
     private void ShowSavedFeedback()
     {
         SaveStatusText.Text = "已自动保存";
         SaveStatusText.Visibility = Visibility.Visible;
+        _saveFeedbackVersion++;
+        if (SystemParameters.ClientAreaAnimation)
+        {
+            SaveStatusText.BeginAnimation(UIElement.OpacityProperty, null);
+            SaveStatusText.Opacity = 0;
+            SaveStatusText.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                });
+        }
+        else
+        {
+            SaveStatusText.Opacity = 1;
+        }
         _saveFeedbackTimer.Stop();
         _saveFeedbackTimer.Start();
     }
 
-    private void LiveControlChanged(object sender, RoutedEventArgs e) => QueueApply();
+    /// <summary>保存提示淡出后收起，避免底栏文字突兀消失。</summary>
+    private void HideSavedFeedback()
+    {
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            SaveStatusText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var version = _saveFeedbackVersion;
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (version != _saveFeedbackVersion) return;
+            SaveStatusText.BeginAnimation(UIElement.OpacityProperty, null);
+            SaveStatusText.Visibility = Visibility.Collapsed;
+        };
+        SaveStatusText.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    /// <summary>打开设置时让内容轻微淡入，与主面板的呼出动画保持一致。</summary>
+    private void PlayEntranceAnimation()
+    {
+        if (!SystemParameters.ClientAreaAnimation || Content is not FrameworkElement root) return;
+        root.BeginAnimation(UIElement.OpacityProperty, null);
+        root.Opacity = 0;
+        root.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+    }
+
+    private void LiveControlChanged(object sender, RoutedEventArgs e)
+    {
+        // 窗口级 AddHandler 的 sender 恒为 SettingsWindow，必须从路由事件的原始来源解析出具体开关。
+        // 保留“用户正在操作这个开关”的门控：载入门控、列表批量赋值和虚拟化都不会让开关获得焦点或鼠标悬停。
+        var box = FindToggleSource(e.OriginalSource);
+        if (!_loading && box is not null && (box.IsKeyboardFocused || box.IsMouseOver))
+            AnimateToggle(box, box.IsChecked == true);
+        QueueApply();
+    }
+
+    /// <summary>从路由事件的原始来源（或它的视觉 / 逻辑祖先）向上找到开关。</summary>
+    private static CheckBox? FindToggleSource(object? originalSource)
+    {
+        var node = originalSource as DependencyObject;
+        while (node is not null)
+        {
+            if (node is CheckBox box) return box;
+            node = node switch
+            {
+                Visual or Visual3D => VisualTreeHelper.GetParent(node),
+                FrameworkContentElement contentElement => contentElement.Parent,
+                _ => LogicalTreeHelper.GetParent(node)
+            };
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 开关切换时把滑块与蓝色轨道补间到新状态；只动画 40×22 的开关，开销可忽略。
+    /// </summary>
+    private static void AnimateToggle(CheckBox box, bool isOn)
+    {
+        if (!SystemParameters.ClientAreaAnimation) return;
+        if (box.Template is null) return;
+        box.ApplyTemplate();
+        if (box.Template.FindName("TrackOn", box) is not Border trackOn) return;
+        if (box.Template.FindName("Thumb", box) is not UIElement thumb) return;
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var duration = TimeSpan.FromMilliseconds(160);
+        var from = isOn ? 3.0 : 21.0;
+        var to = isOn ? 21.0 : 3.0;
+
+        thumb.BeginAnimation(Canvas.LeftProperty,
+            new DoubleAnimation(from, to, duration) { EasingFunction = ease, FillBehavior = FillBehavior.Stop });
+        trackOn.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(isOn ? 0 : 1, isOn ? 1 : 0, duration)
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.Stop
+            });
+    }
 
     private void QueueApply()
     {

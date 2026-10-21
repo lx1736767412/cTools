@@ -21,17 +21,53 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="TabItem">
-            <Border x:Name="Bd" Background="Transparent" CornerRadius="9" Padding="{TemplateBinding Padding}">
-              <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
+            <Border x:Name="Bd" Background="Transparent" CornerRadius="9">
+              <Grid>
+                <Border x:Name="HoverLayer" Background="{DynamicResource HoverBrush}" CornerRadius="9" Opacity="0" />
+                <Border x:Name="SelectedLayer" Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="9" Opacity="0" />
+                <Border Padding="{TemplateBinding Padding}">
+                  <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
+                </Border>
+              </Grid>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="HoverLayer" Storyboard.TargetProperty="Opacity"
+                                       To="1" Duration="0:0:0.16" />
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="HoverLayer" Storyboard.TargetProperty="Opacity"
+                                       To="0" Duration="0:0:0.16" />
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
               </Trigger>
               <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SurfaceBrush}" />
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
                 <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                <Trigger.EnterActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="SelectedLayer" Storyboard.TargetProperty="Opacity"
+                                       To="1" Duration="0:0:0.16" />
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                  <BeginStoryboard>
+                    <Storyboard>
+                      <DoubleAnimation Storyboard.TargetName="SelectedLayer" Storyboard.TargetProperty="Opacity"
+                                       To="0" Duration="0:0:0.16" />
+                    </Storyboard>
+                  </BeginStoryboard>
+                </Trigger.ExitActions>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -75,7 +111,7 @@
               </Border>
 
               <Border Grid.Column="1" Padding="28,24,22,0" ClipToBounds="True">
-                <ContentPresenter ContentSource="SelectedContent" />
+                <ContentPresenter x:Name="TabContentHost" ContentSource="SelectedContent" />
               </Border>
             </Grid>
           </ControlTemplate>

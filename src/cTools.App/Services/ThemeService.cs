@@ -19,6 +19,7 @@ public static class ThemeService
         ("SubTextBrush", "#6B7280", "#A3A9B6"),
         ("AccentBrush", "#2563EB", "#6EA8FF"),
         ("AccentHoverBrush", "#1D4ED8", "#8AB8FF"),
+        ("OnAccentBrush", "#FFFFFF", "#0B1220"),
         ("AccentSoftBrush", "#E8EFFE", "#1C2A44"),
         ("SelectionBrush", "#EDF3FF", "#20304D"),
         ("HoverBrush", "#F1F3F7", "#2B2F38"),

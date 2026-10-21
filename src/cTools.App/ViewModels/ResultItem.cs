@@ -43,8 +43,16 @@ public sealed class ResultItem : ObservableObject
     public ImageSource? Icon
     {
         get => _icon;
-        set => SetProperty(ref _icon, value);
+        set
+        {
+            if (!SetProperty(ref _icon, value)) return;
+            // 真实图标加载后隐藏占位字形，避免图标透明区域透出底下的字形。
+            OnPropertyChanged(nameof(ShowGlyph));
+        }
     }
+
+    /// <summary>没有可用图标时才显示占位字形；有图标时完全隐藏，透明区域不会透出旧图标。</summary>
+    public bool ShowGlyph => _icon is null;
 
     private static string BuildSubtitle(AppEntry entry)
     {

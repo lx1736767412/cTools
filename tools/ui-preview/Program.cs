@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using cTools.App;
 using cTools.App.Services;
 using cTools.App.ViewModels;
@@ -198,6 +199,23 @@ internal static class Program
         Render(window, SettingsWidth, SettingsHeight, path);
     }
 
+    /// <summary>等待模板中的入场 / 补间动画走完，避免离屏截图停在动画中间帧。</summary>
+    private static void SettleAnimations()
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(520)
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            frame.Continue = false;
+        };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
     private static void Render(Window window, int width, int height, string path)
     {
         if (window.Content is not FrameworkElement root) return;
@@ -214,6 +232,9 @@ internal static class Program
             panel.Background = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["WindowBgBrush"];
         root.Measure(new Size(width, height));
         root.Arrange(new Rect(0, 0, width, height));
+        root.UpdateLayout();
+        // 模板里的颜色补间需要真实的 dispatcher 时间才会走到终态；否则离屏截图会停在中间帧。
+        SettleAnimations();
         root.UpdateLayout();
 
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
