@@ -17,6 +17,7 @@ Windows 优先的极速应用启动器。当前版本聚焦一件事：**把应�
 
 - **安装版**：`cTools-<version>-setup.exe`，按当前用户安装（`%LOCALAPPDATA%\Programs\cTools`），不需要管理员权限。
 - **便携版**：`cTools-<version>-win-x64.zip`，解压后直接运行 `cTools.exe`。
+- **单文件版**：`cTools-<version>-win-x64-single.exe`，单个 exe，无需解压，双击即可运行；首次启动会把运行时组件解压到临时目录，第一次启动会稍慢，且不执行自更新。
 
 安装包未做代码签名，SmartScreen 提示“未知发布者”时选择“更多信息 → 仍要运行”。
 
@@ -24,7 +25,7 @@ Windows 优先的极速应用启动器。当前版本聚焦一件事：**把应�
 
 ### 自动更新
 
-安装版会在启动约 20 秒后检查最新 Release，此后每 6 小时检查一次；也可以从「设置 → 关于」或托盘菜单手动检查。发现新版本后可一键下载并静默安装，安装完成后 cTools 会自动重新打开。便携版不执行自更新，只提供发布页下载入口。
+安装版会在启动约 20 秒后检查最新 Release，此后每 6 小时检查一次；也可以从「设置 → 关于」或托盘菜单手动检查。发现新版本后可一键下载并静默安装，安装完成后 cTools 会自动重新打开。便携版和单文件版不执行自更新，只提供发布页下载入口。
 
 更新包下载后会按 GitHub 提供的 SHA-256 摘要校验，校验失败会放弃安装。
 
@@ -33,6 +34,16 @@ Windows 优先的极速应用启动器。当前版本聚焦一件事：**把应�
 ```powershell
 dotnet publish src\cTools.App -c Release -r win-x64 --self-contained true -o publish
 ISCC.exe /DMyAppVersion=0.1.0 /DPublishDir="$PWD\publish" /DOutputDir="$PWD\dist" installer\cTools.iss
+
+# 单文件版：输出单一 cTools.exe，可复制为 cTools-0.1.0-win-x64-single.exe
+dotnet publish src\cTools.App -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true `
+  -p:DebugType=None -p:DebugSymbols=false `
+  -o publish-single
+New-Item -ItemType Directory -Force dist | Out-Null
+Copy-Item publish-single\cTools.exe dist\cTools-0.1.0-win-x64-single.exe
 ```
 
 ---
@@ -300,7 +311,7 @@ dotnet run --project tools\ui-preview -- artifacts\ui
 - UWP 图标已通过 `shell:AppsFolder` + `IShellItemImageFactory` 提取；极少数包可能仍回退通用图标。
 - 全屏检测是「通知状态 + 前台窗口覆盖显示器」的启发式；少数组件覆盖层可能误判。
 - 固定显示器被拔掉时会回退到鼠标所在屏幕，不记忆“上次位置”。
-- 自动更新只对安装版生效；便携版需要手动下载新的压缩包。
+- 自动更新只对安装版生效；便携版和单文件版需要手动下载新版本。
 - 安装包和更新包都没有代码签名，首次运行可能触发 SmartScreen 提示。
 - 没有插件系统（按当前阶段聚焦启动器）。
 

@@ -64,6 +64,47 @@ jobs:
             -o publish
           if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
 
+      - name: Publish single-file executable
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.number }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          $version = $env:APP_VERSION
+          $build = $env:BUILD_NUMBER
+          if (-not $version) { throw "APP_VERSION is not set" }
+          if (-not $build) { throw "BUILD_NUMBER is not set" }
+          $informationalVersion = '{0}-build.{1}' -f $version, $build
+
+          dotnet publish src/cTools.App/cTools.App.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:Version=$version `
+            -p:InformationalVersion=$informationalVersion `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o publish-single
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish (single-file) failed with exit code $LASTEXITCODE" }
+
+          $published = @(Get-ChildItem -LiteralPath 'publish-single' -File)
+          if ($published.Count -ne 1) {
+            $names = ($published | ForEach-Object { $_.Name }) -join ', '
+            throw "publish-single must contain exactly one file, found $($published.Count): $names"
+          }
+          if ($published[0].Name -ne 'cTools.exe') {
+            throw "publish-single must contain cTools.exe, found $($published[0].Name)"
+          }
+
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $singleFile = Join-Path 'dist' "cTools-$version-win-x64-single.exe"
+          Copy-Item -LiteralPath $published[0].FullName -Destination $singleFile -Force
+          $output = Get-Item -LiteralPath $singleFile
+          Write-Host "Single-file executable: $($output.FullName) ($($output.Length) bytes)"
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -118,9 +159,13 @@ jobs:
 
             下载 `cTools-${{ steps.version.outputs.number }}-win-x64.zip`，解压后直接运行 `cTools.exe`。
 
+            ### 单文件版
+
+            下载 `cTools-${{ steps.version.outputs.number }}-win-x64-single.exe`，无需解压，双击即可运行。首次启动会把运行时组件解压到临时目录，因此第一次启动会稍慢。单文件版不执行自更新，需要新版本时请重新下载。
+
             ### 自动更新
 
-            安装版启动后会自动检查新版本，也可以在「设置 → 关于」或托盘菜单手动检查；下载完成后会静默安装并重新打开。
+            安装版启动后会自动检查新版本，也可以在「设置 → 关于」或托盘菜单手动检查；下载完成后会静默安装并重新打开。便携版和单文件版不执行自更新，需要新版本时请重新下载。
 
             > 安装包未做代码签名，Windows SmartScreen 可能提示“未知发布者”，点击“更多信息 → 仍要运行”即可。
           files: dist/*
