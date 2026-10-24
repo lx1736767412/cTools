@@ -498,9 +498,41 @@ public partial class MainWindow : Window
 
     private bool TryLaunchSelected(bool admin, bool openLocation)
     {
-        if (!_viewModel.LaunchSelected(admin, openLocation)) return false;
+        // ① 先取现场：KeepSearchText=false 时 HidePalette 会清空 Query，而 Query 的 setter
+        //    会 Refresh() 并重置 Selected。启动必须使用隐藏前的快照，否则会启动错项、丢统计。
+        var item = _viewModel.Selected;
+        if (item is null) return false;
+        var query = _viewModel.Query;
+        var searchText = SearchBox.Text;
+
+        // ② 隐藏先于启动：面板在 ShellExecuteEx / UAC 等同步阻塞之前就消失。
+        //    同时屏蔽本次隐藏引发的 Deactivated，避免二次 HidePalette 回抢旧前台窗口焦点。
+        _ignoreDeactivateUntil = Environment.TickCount64 + 700;
         HidePalette(false);
+
+        // ③ 启动动作排到隐藏之后的 UI 消息循环（Background 低于 Render/Input），确保隐藏已提交；
+        //    启动仍在 UI 线程同步执行，不新增后台线程（COM/UAC 线程亲和）。
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (_viewModel.Launch(item, admin, openLocation, query)) return;
+            RestorePaletteAfterLaunchFailure(item, searchText);
+        }));
         return true;
+    }
+
+    /// <summary>启动失败 / UAC 取消 / 打开位置失败：重新显示面板并恢复搜索词与选中项，便于直接重试。</summary>
+    private void RestorePaletteAfterLaunchFailure(ResultItem item, string searchText)
+    {
+        ShowPalette();
+        if (!string.IsNullOrEmpty(searchText)) SetQuery(searchText);
+        // 写回搜索框或隐藏期间遗留的防抖计时器会在 Tick 里把 SelectedIndex 重置为 0；
+        // 停掉它，保留下面恢复的选中项。
+        _searchTimer.Stop();
+        var restored = _viewModel.Results.FirstOrDefault(r => ReferenceEquals(r.Entry, item.Entry))
+            ?? _viewModel.Results.FirstOrDefault(r => r.Entry.Id == item.Entry.Id);
+        if (restored is null) return;
+        _viewModel.Selected = restored;
+        ResultsList.ScrollIntoView(restored);
     }
 
     private bool IsGridLayout => _viewModel.Settings.ResultLayout == ResultLayout.Grid;

@@ -177,9 +177,17 @@ public sealed class MainViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>以当前选中项和查询词启动，供不经过窗口的调用方使用。</summary>
     public bool LaunchSelected(bool admin, bool openLocation)
+        => Launch(Selected, admin, openLocation, Query);
+
+    /// <summary>
+    /// 对显式传入的结果项执行启动 / 打开位置 / 建议动作。
+    /// 窗口会先隐藏面板再调用本方法，因此不能依赖隐藏后已被清空的 Selected/Query：
+    /// item 与 query 必须是隐藏前的快照。
+    /// </summary>
+    public bool Launch(ResultItem? item, bool admin, bool openLocation, string query)
     {
-        var item = Selected;
         if (item is null) return false;
         if (item.Action is not null)
         {
@@ -211,9 +219,9 @@ public sealed class MainViewModel : ObservableObject
         }
         item.Entry.UseCount++;
         item.Entry.LastUsedAt = DateTime.Now;
-        item.Entry.RecordQueryUsage(TextNormalizer.Normalize(Query));
+        item.Entry.RecordQueryUsage(TextNormalizer.Normalize(query));
         ScheduleSave();
-        if (string.IsNullOrEmpty(Query)) Refresh();
+        if (string.IsNullOrEmpty(query)) Refresh();
         return true;
     }
 
